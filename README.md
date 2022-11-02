@@ -31,7 +31,10 @@ If you have any problems related to HW3, you may
 - Post your question under hw3 FAQ section in FB group.(But TAs won't answer your question on FB.)
 
 # Reminder:
-inference:
+inference: 
+
+1. device = "cuda"
+2. torch.load(model_name, map_location='cuda')
 
     if torch.cuda.is_available():
         if torch.cuda.device_count()==2:
