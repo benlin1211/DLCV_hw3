@@ -29,3 +29,23 @@ If you have any problems related to HW3, you may
 - Use TA hours
 - Contact TAs by e-mail ([ntudlcv@gmail.com](mailto:ntudlcv@gmail.com))
 - Post your question under hw3 FAQ section in FB group.(But TAs won't answer your question on FB.)
+
+# Reminder:
+inference: 
+
+1. device = "cuda"
+2. torch.load(model_name, map_location='cuda')
+
+Example:
+
+    if torch.cuda.is_available():
+        if torch.cuda.device_count()==2:
+            device = torch.device("cuda:1")
+        else:
+            device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    print("Using", device)
+    ...
+    netG.load_state_dict(torch.load(ckpt_path, map_location='cuda'))
+
