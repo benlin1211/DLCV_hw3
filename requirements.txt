@@ -10,3 +10,8 @@ timm==0.6.11
 torch==1.12.1
 torchvision==0.13.1
 gdown==4.5.3
+ftfy 
+regex
+tqdm
+git+https://github.com/openai/CLIP.git
+git+https://github.com/bckim92/language-evaluation.git

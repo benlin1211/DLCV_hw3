@@ -1,7 +1,7 @@
 #Ignore the dataset
 #IMPORTANT: make sure that your dataset is stored in a folder with the same as the one specified below
 
-hw2_data/*
+hw3_data/*
 *png
 *jpg
 *gif
@@ -11,3 +11,4 @@ hw2_data/*
 ckpt*/
 log*/
 wandb*/
+__MACOSX
