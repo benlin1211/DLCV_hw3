@@ -36,7 +36,7 @@ inference:
 1. device = "cuda"
 2. torch.load(model_name, map_location='cuda')
 
-Example
+Example:
 
     if torch.cuda.is_available():
         if torch.cuda.device_count()==2:
