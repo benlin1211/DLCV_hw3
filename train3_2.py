@@ -111,7 +111,7 @@ encoder_model = timm.create_model('vit_base_patch16_224', pretrained=True)
 #         print("encoder_model",x.shape)
 #         x = self.fcn1(x)
 #         print("fcn1",x.shape)
-#         x = self.fcn2(x)
+#         x = self.fcn2(x) 
 #         print("fcn2",x.shape)
 #         return x
 
