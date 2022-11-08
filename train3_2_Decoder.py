@@ -125,8 +125,7 @@ class MultiHeadAttention(nn.Module):
         # adjust key for matrix multiplication
         k_adjusted = k.transpose(-1,-2)  #(batch_size, n_heads, single_head_dim, seq_ken)  #(32 x 8 x 64 x 10)
         product = torch.matmul(q, k_adjusted)  #(32 x 8 x 10 x 64) x (32 x 8 x 64 x 10) = #(32x8x10x10)
-      
-        
+
         # fill those positions of product matrix as (-1e20) where mask positions are 0
         if mask is not None:
              product = product.masked_fill(mask == 0, float("-1e20"))
@@ -302,7 +301,6 @@ class TransformerDecoder(nn.Module):
             out: output vector
         """
             
-        
         x = self.word_embedding(x)  #32x10x512
         x = self.position_embedding(x) #32x10x512
         x = self.dropout(x)
@@ -334,6 +332,7 @@ class Transformer(nn.Module):
         self.target_vocab_size = target_vocab_size
 
         self.encoder = TransformerEncoder(seq_length, src_vocab_size, embed_dim, num_layers=num_layers, expansion_factor=expansion_factor, n_heads=n_heads)
+        #print( self.encoder)
         self.decoder = TransformerDecoder(target_vocab_size, embed_dim, seq_length, num_layers=num_layers, expansion_factor=expansion_factor, n_heads=n_heads)
         
     
@@ -389,6 +388,8 @@ class Transformer(nn.Module):
         trg_mask = self.make_trg_mask(trg)
         enc_out = self.encoder(src)
         print("enc_out",enc_out.shape)
+        print("tgt",trg.shape)        
+        print("trg_mask",trg_mask.shape) 
         outputs = self.decoder(trg, enc_out, trg_mask)
         return outputs
 
@@ -396,27 +397,30 @@ if __name__ == "__main__":
     src_vocab_size = 11
     target_vocab_size = 11
     num_layers = 6
-    seq_length= 12
+    seq_length= 100 #12
 
 
     # let 0 be sos token and 1 be eos token
-    src = torch.tensor([[0, 2, 5, 6, 4, 3, 9, 5, 2, 9, 10, 1], 
-                        [0, 2, 8, 7, 3, 4, 5, 6, 7, 2, 10, 1]])
-    target = torch.tensor([[0, 1, 7, 4, 3, 5, 9, 2, 8, 10, 9, 1], 
-                        [0, 1, 5, 6, 2, 4, 7, 6, 2, 8, 10, 1]])
-
+    # src = torch.tensor([[0, 2, 5, 6, 4, 3, 9, 5, 2, 9, 10, 1], 
+    #                     [0, 2, 8, 7, 3, 4, 5, 6, 7, 2, 10, 1]])
+    # target = torch.tensor([[0, 1, 7, 4, 3, 5, 9, 2, 8, 10, 9, 1], 
+    #                     [0, 1, 5, 6, 2, 4, 7, 6, 2, 8, 10, 1]])
+    src = torch.randint( 2, 10,(2, seq_length))
+    target = torch.randint( 2, 10,(2, seq_length))
     print(src.shape,target.shape)
     # embed_dim=512
     embed_dim = 768
-    model = Transformer(embed_dim=768, src_vocab_size=src_vocab_size, 
+    model = Transformer(embed_dim=embed_dim, src_vocab_size=src_vocab_size, 
                         target_vocab_size=target_vocab_size, seq_length=seq_length,
                         num_layers=num_layers, expansion_factor=4, n_heads=8)
-    print(model)
+    #print(model)
     out = model(src, target)
+    #print(out)
     print(out.shape)
 
     # inference
-    model = Transformer(embed_dim=512, src_vocab_size=src_vocab_size, 
+    print("inference")
+    model = Transformer(embed_dim=embed_dim, src_vocab_size=src_vocab_size, 
                         target_vocab_size=target_vocab_size, seq_length=seq_length, 
                         num_layers=num_layers, expansion_factor=4, n_heads=8)
                     
