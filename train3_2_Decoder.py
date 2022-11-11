@@ -241,7 +241,7 @@ class DecoderBlock(nn.Module):
         self.transformer_block = TransformerBlock(embed_dim, expansion_factor, n_heads)
         
     
-    def forward(self, key, query, x,mask):
+    def forward(self, key, query, value, mask):
         
         """
         Args:
@@ -255,8 +255,8 @@ class DecoderBlock(nn.Module):
         """
         
         #we need to pass mask mask only to fst attention
-        attention = self.attention(x,x,x,mask=mask) #32x10x512
-        value = self.dropout(self.norm(attention + x))
+        attention = self.attention(value,value,value,mask=mask) #32x10x512
+        value = self.dropout(self.norm(attention + value))
         
         out = self.transformer_block(key, query, value)
 
@@ -303,10 +303,11 @@ class TransformerDecoder(nn.Module):
             
         x = self.word_embedding(x)  #32x10x512
         x = self.position_embedding(x) #32x10x512
+        print("position_embedding", x.shape)
         x = self.dropout(x)
      
         for layer in self.layers:
-            x = layer(enc_out, x, enc_out, mask) 
+            x = layer(key=enc_out, query=x, value=enc_out, mask=mask) 
 
         out = F.softmax(self.fc_out(x))
 
@@ -405,8 +406,8 @@ if __name__ == "__main__":
     #                     [0, 2, 8, 7, 3, 4, 5, 6, 7, 2, 10, 1]])
     # target = torch.tensor([[0, 1, 7, 4, 3, 5, 9, 2, 8, 10, 9, 1], 
     #                     [0, 1, 5, 6, 2, 4, 7, 6, 2, 8, 10, 1]])
-    src = torch.randint( 2, 10,(2, seq_length))
-    target = torch.randint( 2, 10,(2, seq_length))
+    src = torch.randint( 0, 10,(1, seq_length))
+    target = torch.randint( 0, 10,(1, seq_length))
     print(src.shape,target.shape)
     # embed_dim=512
     embed_dim = 768

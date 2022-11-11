@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import argparse
+import random
 
 def fix_random_seed():
     myseed = 6666  # set a random seed for reproducibility
@@ -64,6 +65,17 @@ class ImageDataset(Dataset):
 #     data_source = data_target_iter.next()
 #     s_img, s_label = data_source
 
+def same_seeds(seed):
+
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    random.seed(seed)
+    np.random.seed(seed) 
+    torch.manual_seed(seed)
 
 
 def read_json(json_name):
@@ -89,6 +101,8 @@ if __name__ == '__main__':
     output_name = args.output_name # output_name = "./output_p1/pred.csv"
     template_prompt = args.template_prompt
     
+    seed = 1211
+    same_seeds(seed) 
 
     if torch.cuda.is_available():
         if torch.cuda.device_count()==2:
