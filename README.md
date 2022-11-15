@@ -21,6 +21,9 @@ This homework should be done using python3.8. For a list of packages you are all
 You can run the following command to install all the packages listed in the requirements.txt:
 
     pip3 install -r requirements.txt
+    conda create --name dlcv-hw3 python=3.8
+    conda activate dlcv-hw3
+    pip3 install --target=/home/bl530/anaconda3/bin/python -r requirements.txt
 
 Note that using packages with different versions will very likely lead to compatibility issues, so make sure that you install the correct version if one is specified above. E-mail or ask the TAs first if you want to import other packages.
 
