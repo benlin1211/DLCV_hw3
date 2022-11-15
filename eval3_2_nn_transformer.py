@@ -26,9 +26,7 @@ import torchvision
 import torchvision.transforms as transforms
 from tqdm import tqdm
 import argparse
-import clip
 
- 
 # seed setting
 def same_seeds(seed):
     # Python built-in random module
@@ -130,7 +128,7 @@ class PositionalEmbedding(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, expansion_factor=4, n_heads=8):
+    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers=12, expansion_factor=4, n_heads=8):
         super(VisualTransformer, self).__init__()
         
         """  
@@ -162,9 +160,48 @@ class VisualTransformer(nn.Module):
 
         self.linear = nn.Linear(embed_dim ,self.target_vocab_size)
 
-        #self.decoder = 
-  
-    
+    def decode(self, img, max_seq_len, device):
+        BOS = 2
+        EOS = 3
+        bz = img.size(0)
+        # ref: https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/132907dd272e2cc92e3c10e6c4e783a87ff8893d/transformer/Translator.py#L9
+        
+        # init:
+        enc_out = self.encoder(img)
+        ans_idx = 0   # default
+        gen_seq = np.zeros((bz, max_seq_len)) # [bz, max_seq_len]
+        gen_seq[:,0] = BOS  #[BOS]
+        gen_seq = torch.tensor(gen_seq, dtype=torch.int64).to(device) 
+        
+        # Greedy
+        # start: [BOS] 
+        for step in range(1, max_seq_len):    # decode up to max length 
+            # print("step",step)
+            # print(gen_seq[:, :step])
+            tgt = self.word_embedding(gen_seq[:, :step]) 
+            tgt = self.position_embedding(tgt)
+
+            outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=None, tgt_key_padding_mask=None)
+            outputs = self.linear(outputs)
+            outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
+            # print(outputs.shape)
+            # print(outputs)
+            # print(torch.amax(outputs,1))
+            best_k_idx = torch.argmax(outputs,1)
+            #print("best_k_idx", best_k_idx)
+            gen_seq[:, 1:step+1] = best_k_idx
+            #print(outputs.shape)
+
+            # Locate the position of [EOS]
+            # eos_locs = gen_seq == EOS #[EOS] 
+
+            # assert bz = 1
+            if gen_seq[:, step]==EOS:
+                break
+            # if step > 4:
+            #     break
+        return gen_seq
+        
     def forward(self, img, tgt, trg_mask, padding_masks):
         tgt = self.word_embedding(tgt) 
         tgt = self.position_embedding(tgt)
@@ -181,7 +218,7 @@ class VisualTransformer(nn.Module):
         # (tgt_len, batch, embed_dim)
         outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=trg_mask, tgt_key_padding_mask=padding_masks)
         outputs = self.linear(outputs)
-        outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
+        outputs = outputs.permute(1,2,0) # torch.Size([bz, tgt_len, target_vocab_size])
         return outputs
 
 
@@ -198,17 +235,6 @@ def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
 # 版权声明：本文为CSDN博主「旺旺棒棒冰」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
 # 原文链接：https://blog.csdn.net/ltochange/article/details/116524264
 
-def loss_compute(pred, gth, smoothing):
-    # https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/132907dd272e2cc92e3c10e6c4e783a87ff8893d/train.py#L40 
-    PAD = 0
-    #loss = F.cross_entropy(pred, gth, ignore_index=PAD, label_smoothing=smoothing)# ,reduction='sum')
-    print(pred)
-    print(gth)
-    criterion = nn.CrossEntropyLoss()
-    loss = criterion(pred, gth, ignore_index=PAD, label_smoothing=smoothing)
-    # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-    return loss
-
 def show_n_param(model):
     n_parameters = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
@@ -219,7 +245,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2")
-    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=1)
     parser.add_argument("--model_option", default="vit_base_patch16_224") #"vit_base_resnet50_384" 
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--learning_rate", help="learning rate", type=float, default=5e-4)
@@ -228,7 +254,7 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=250)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
-    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.05)
+    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.1)
 
 
     args = parser.parse_args()
@@ -244,6 +270,7 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
+    device = torch.device("cuda")
 
     print("Using", device)
 
@@ -260,7 +287,7 @@ if __name__ == "__main__":
     
     # Epoch
     epochs = args.n_epochs
-    gradient_clip = 5.0
+    weight_clip = 1
     # lr scheduler
     num_warmup_steps = args.scheduler_warmup_steps
     gamma = args.gamma
@@ -335,8 +362,9 @@ if __name__ == "__main__":
 
     # Debugger
     len_dataloader_train = len(data_loader_train)
+    #data_iter_train = iter(data_loader_train)
     len_dataloader_val = len(data_loader_val)
-
+    #data_iter_val = iter(data_loader_val)
     
     pred_list = []
     filename_list = []
@@ -345,189 +373,57 @@ if __name__ == "__main__":
 
     # model
     model = VisualTransformer(embed_dim=768, encoder_model_name=encoder_model_name, 
-                              target_vocab_size=target_vocab_size, seq_length=seq_length,
-                              num_layers=num_layers)
-    model = model.to(device)
-    #print(model)
+                              target_vocab_size=target_vocab_size, seq_length=seq_length)
     show_n_param(model)
-    
-    
+    model = model.to(device)
+
     # optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     # scheduler
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, drop_step, gamma)
+    criterion = nn.CrossEntropyLoss() 
     
-    # clip computer
-    clip_model, _preprocess = clip.load("ViT-B/32", device=device)
-    clip_model.eval()
-    cos = torch.nn.CosineSimilarity(dim=1)
-    w=2.5
-
     #model.eval()
-    #best_loss = 1000
-    best_clip_score = -1
+    best_loss = 20
     loss_curve_train = []
     loss_curve_val = []
-    start_epoch = 0
 
     # Load 
-    resume  = os.path.join(ckpt_path, f"epoch_5_best.pth")
-    checkpoint = torch.load(resume, map_location = device)
 
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    start_epoch = checkpoint['epoch']
-
-    for epoch in range(start_epoch, epochs):
-        # ========================= Train ==========================
-        model.train()
-        print("Train")
-        pbar = tqdm(data_loader_train)
-        pbar.set_description(f"Epoch {epoch}")
-        for data in pbar:
-            #data = data_iter_train.next()
-            image, captions = data    
-            image = image.to(device)
-            # print(image.shape)
-            # print(captions)
-
-            # preprocessing
-            tokenized_captions = tokenizer.encode_batch(captions)
-            tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-            tokenized_ids = tokenized_ids.to(device)
-            # Shift
-            gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-            gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-            padding_masks = torch.tensor([c.attention_mask for c in tokenized_captions], dtype=torch.bool).to(device) #1 not seen
-            padding_masks = ~padding_masks
-
-            #padding_masks[padding_masks==1] = float('-inf')
-            # print(tokenized_ids)
-            # print(padding_masks)
-            # tokens = [c.tokens for c in tokenized_captions]
-            # n_sequences = [c.n_sequences for c in tokenized_captions]
-            trg_mask = nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
-            # https://towardsdatascience.com/a-detailed-guide-to-pytorchs-nn-transformer-module-c80afbc9ffb1
-            # print(trg_mask)
-            out = model(image, tokenized_ids, trg_mask, padding_masks)
-
-            print("out", out.shape)
-            print("out", out)
-            print("in", tokenized_ids)
-            print("gth",gth_ids)
-            print("out_argmax", torch.argmax(out,1))
-            print("out_amax", torch.amax(out,1))
-            loss = loss_compute(out, gth_ids, smoothing)
-            
-            model.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
-            optimizer.step()
-            lr_scheduler.step()
-
-            # Record
-            pbar.set_postfix(loss=loss.item(), lr = optimizer.param_groups[0]['lr'])
-            loss_curve_train.append(loss.item())
-
-        # ========================= Eval: how to do ? ==========================
-        model.eval()
-        print("Eval")
-        pbar_val = tqdm(data_loader_val)
-        pbar_val.set_description(f"Epoch {epoch}")
-        # val_loss = 0
-        # with torch.no_grad():
-        #     for data in pbar_val:
-        #         image, captions = data 
-        #         image = image.to(device)
-        #         # preprocessing 
-        #         tokenized_captions = tokenizer.encode_batch(captions)
-        #         tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-        #         tokenized_ids = tokenized_ids.to(device)
-        #         # Shift
-        #         gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-        #         gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-        #         padding_masks = torch.tensor([c.attention_mask for c in tokenized_captions], dtype=torch.bool).to(device) #1 not seen
-        #         padding_masks = ~padding_masks  
-        #         trg_mask =  nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
-        #         out = model(image, tokenized_ids, None,None) # trg_mask, padding_masks)
-
-        #         loss = loss_compute(out, tokenized_ids, smoothing)
-        #         val_loss += loss.item()
-        #         pbar_val.set_postfix(loss=loss.item())
-        #         loss_curve_val.append(loss.item())
-        clip_scores = []
-        with torch.no_grad():
-            for data in pbar_val:
-                image, captions = data 
-                image = image.to(device)
-                # preprocessing 
-                tokenized_captions = tokenizer.encode_batch(captions)
-                tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-                tokenized_ids = tokenized_ids.to(device)
-                # Shift
-                gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-                gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-                padding_masks = torch.tensor([c.attention_mask for c in tokenized_captions], dtype=torch.bool).to(device) #1 not seen
-                padding_masks = ~padding_masks  
-                trg_mask =  nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
-                
-                out = model(image, tokenized_ids, None,None) # trg_mask, padding_masks)
-                #text = tokenizer.decode_batch(torch.argmax(out,1).cpu().numpy())
-                text_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-                text_ids[:,1:] = torch.argmax(out,1)[:,:-1]
-                text_ids[:,0] = 2 # BOS
-                text = tokenizer.decode_batch(text_ids.cpu().numpy())
-                #print("text", text)
-                
-                # compute clip
-                image_embedding = clip_model.encode_image(image)
-                text_ids = clip.tokenize(text).to(device)
-                text_embedding = clip_model.encode_text(text_ids)
-                # cos_similarity =  a*b/|a|/|b|
-                score = cos(image_embedding, text_embedding)
-
-                mean_score = score.mean()
-                _clip = w*max(mean_score, 0).cpu().numpy()
-
-                pbar_val.set_postfix(clip=_clip, lr = optimizer.param_groups[0]['lr'])
-                clip_scores.append(_clip)
-        
-        clip_score = sum(clip_scores)/len(clip_scores)
-        if best_clip_score <= clip_score:
-            best_clip_score = clip_score
-            save_as = os.path.join(ckpt_path, f"epoch_{epoch}_best.pth")
-            print(f"New best clip score: {best_clip_score}. Saving emodel at {save_as}")
-            torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': lr_scheduler.state_dict(),
-                    }, save_as)
-        
-    # Load 
     resume  = os.path.join(ckpt_path, f"epoch_0.pth")
     checkpoint = torch.load(resume, map_location = device)
-
     model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    epoch = checkpoint['epoch']
+
+    model.eval()
+    val_loss = 0
+
+    max_seq_len = 100
+    with torch.no_grad():
+        for i, data in enumerate(data_loader_val):
+            #data = data_iter_val.next()
+            image, _caption = data 
+            print(_caption)
+            image = image.to(device)
+            # preprocessing 
+
+            pred_ids = model.decode(image, max_seq_len, device)
+
+            for p in pred_ids:
+                p = list(p.cpu())
+                reconstruct_caption = tokenizer.decode(p)
+                #print(p) 
+                #print("reconstruct_caption:")
+                print(reconstruct_caption)
+
+            # if i == 10:
+            #     break
 
 
-    print("OK")
-
-    df = pd.DataFrame() # apply pd.DataFrame format 
-    df["loss_train"] = loss_curve_train
-    csv_name = os.path.join(ckpt_path, f"loss_train.csv")
-    df.to_csv(csv_name, index = False)
 
 
-    df = pd.DataFrame() # apply pd.DataFrame format 
-    df["loss_val"] = loss_curve_val
-    csv_name = os.path.join(ckpt_path, f"loss_val.csv")
-    df.to_csv(csv_name, index = False)
+    
+
+
+
+
