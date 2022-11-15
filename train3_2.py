@@ -654,6 +654,7 @@ if __name__ == "__main__":
             trg_mask = nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
             # https://towardsdatascience.com/a-detailed-guide-to-pytorchs-nn-transformer-module-c80afbc9ffb1
             # print(trg_mask)
+            print(image.dtype)
             out = model(image, tokenized_ids, trg_mask, padding_masks)
 
             # print("out", out)
