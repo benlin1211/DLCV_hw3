@@ -252,23 +252,17 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
     parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
 
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_20_soft_005")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_13_best.pth")
-    parser.add_argument("--batch_size", help="batch size", type=int, default=4)
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_0_best.pth")
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-5)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
-    parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=2000)
-    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20)
+    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=20)
-    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.05)
-
 
     args = parser.parse_args()
     print(vars(args))
@@ -283,7 +277,7 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    #device = torch.device("cuda")
+    device = torch.device("cuda")
 
     print("Using", device)
     des_path = args.des_path
@@ -295,19 +289,7 @@ if __name__ == "__main__":
     resize = args.resize
     batch_size = 1 # args.batch_size
     embed_dim = args.embed_dim
-    # Leaning rate
-    lr = args.learning_rate
-    weight_decay = args.weight_decay
-
-    # loss smootthing
-    smoothing = args.smoothing
-    
-    # Epoch
-    epochs = args.n_epochs
-    weight_clip = 1
-    # lr scheduler
-    num_warmup_steps = args.scheduler_warmup_steps
-    gamma = args.gamma
+    n_heads = args.n_heads
 
     root_dir = "./hw3_data"
     ckpt_path= args.ckpt_path
@@ -383,7 +365,8 @@ if __name__ == "__main__":
     model = VisualTransformer(embed_dim=embed_dim, encoder_model_name=encoder_model_name, 
                               target_vocab_size=target_vocab_size, seq_length=seq_length,
                               num_layers=num_layers,
-                              num_freeze_layer=num_freeze_layer)
+                              num_freeze_layer=num_freeze_layer,
+                              n_heads=n_heads)
     show_n_param(model)
     model = model.to(device)
 

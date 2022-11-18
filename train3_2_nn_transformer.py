@@ -121,7 +121,7 @@ class PositionalEmbedding(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, expansion_factor=4, n_heads=8):
+    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, n_heads, expansion_factor=4):
         super(VisualTransformer, self).__init__()
         
         """  
@@ -165,25 +165,6 @@ class VisualTransformer(nn.Module):
         self.linear = nn.Linear(embed_dim ,self.target_vocab_size)
 
         #self.decoder = 
-  
-    
-    def forward(self, img, tgt, trg_mask, padding_masks):
-        tgt = self.word_embedding(tgt) 
-        tgt = self.position_embedding(tgt)
-        enc_out = self.encoder(img)
-        #print("enc_out",enc_out.shape)   # torch.Size([1, 196, 768])
-        # print("tgt",tgt.shape)           # torch.Size([1, tgt.shape[1]])
-
-        # print("trg_mask",trg_mask.shape) # torch.Size([tgt.shape[1], tgt.shape[1]])
-        # print("trg_mask",trg_mask)
-        # print("padding_masks", padding_masks.shape)
-        # print("padding_masks", padding_masks)
-        
-        # (tgt_len, batch, embed_dim)
-        outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=trg_mask, tgt_key_padding_mask=padding_masks)
-        outputs = self.linear(outputs)
-        outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
-        return outputs
 
     def decode(self, img, max_seq_len, device):
         BOS = 2
@@ -228,6 +209,23 @@ class VisualTransformer(nn.Module):
             #     break
         return gen_seq
 
+    def forward(self, img, tgt, trg_mask, padding_masks):
+        tgt = self.word_embedding(tgt) 
+        tgt = self.position_embedding(tgt)
+        enc_out = self.encoder(img)
+        # print("enc_out",enc_out.shape)   # torch.Size([1, 196, 768])
+        # print("tgt",tgt.shape)           # torch.Size([1, tgt.shape[1]])
+
+        # print("trg_mask",trg_mask.shape) # torch.Size([tgt.shape[1], tgt.shape[1]])
+        # print("trg_mask",trg_mask)
+        # print("padding_masks", padding_masks.shape)
+        # print("padding_masks", padding_masks)
+        
+        # (tgt_len, batch, embed_dim)
+        outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=trg_mask, tgt_key_padding_mask=padding_masks)
+        outputs = self.linear(outputs)
+        outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
+        return outputs
 
 def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
 
@@ -262,19 +260,21 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_20_soft_005")
-    parser.add_argument("--batch_size", help="batch size", type=int, default=4)
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_24_nhead_8")
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-5)
+    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 8*128
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=12)
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=24)
+    
+    parser.add_argument("--batch_size", help="batch size", type=int, default=8)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=2e-5)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=2000)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20)
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
-    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=20)
-    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.05)
+    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
 
 
     args = parser.parse_args()
@@ -299,6 +299,7 @@ if __name__ == "__main__":
     resize = args.resize
     batch_size = args.batch_size
     embed_dim = args.embed_dim
+    n_heads = args.n_heads
     # Leaning rate
     lr = args.learning_rate
     weight_decay = args.weight_decay
@@ -395,7 +396,8 @@ if __name__ == "__main__":
     model = VisualTransformer(embed_dim=embed_dim, encoder_model_name=encoder_model_name, 
                               target_vocab_size=target_vocab_size, seq_length=seq_length,
                               num_layers=num_layers,
-                              num_freeze_layer=num_freeze_layer)
+                              num_freeze_layer=num_freeze_layer,
+                              n_heads=n_heads)
     model = model.to(device)
     #print(model)
     show_n_param(model)
@@ -420,14 +422,14 @@ if __name__ == "__main__":
     start_epoch = 0
 
     # # Load 
-    resume  = os.path.join(ckpt_path, f"epoch_6_best.pth")
-    checkpoint = torch.load(resume, map_location = device)
-    print(f"Load from {resume}")
+    # resume  = os.path.join(ckpt_path, f"epoch_6_best.pth")
+    # checkpoint = torch.load(resume, map_location = device)
+    # print(f"Load from {resume}")
 
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    start_epoch = checkpoint['epoch'] + 1 
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    # start_epoch = checkpoint['epoch'] + 1 
 
     for epoch in range(start_epoch, epochs):
         # ========================= Train ==========================
