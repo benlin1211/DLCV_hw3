@@ -8,6 +8,7 @@ hw3_data/*
 *.zip
 *.ckpt
 *.pth
+*.csv
 ckpt*/
 log*/
 wandb*/

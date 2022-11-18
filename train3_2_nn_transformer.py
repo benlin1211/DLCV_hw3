@@ -26,7 +26,6 @@ import torchvision
 import torchvision.transforms as transforms
 from tqdm import tqdm
 import argparse
-#import clip
 
  
 # seed setting
@@ -69,6 +68,7 @@ class ImageCaption(Dataset):
         return len(self.annotations)
 
     def __getitem__(self, idx):
+        # read image according to caption list
         # Get image_id
         image_id = self.annotations[idx]["image_id"]
 
@@ -81,15 +81,6 @@ class ImageCaption(Dataset):
         image = Image.open(os.path.join(self.image_dir, file_name[0])).convert('RGB')
         if self.transform:
             image = self.transform(image)
-
-        # # Tokenize the caption
-        # tokenized_caption = self.tokenizer.encode(caption, padding=True)
-        # tokenized_caption_ids = torch.tensor(tokenized_caption.ids)
-
-        # cap_mask = (
-        #     1 - np.array(tokenized_caption.attention_mask)).astype(bool)
-        # print(file_name)
-        # print(caption)
         return image, caption
 
 
@@ -130,7 +121,7 @@ class PositionalEmbedding(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer=8, expansion_factor=4, n_heads=8):
+    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, expansion_factor=4, n_heads=8):
         super(VisualTransformer, self).__init__()
         
         """  
@@ -147,7 +138,7 @@ class VisualTransformer(nn.Module):
         """
 
         self.word_embedding = nn.Embedding(target_vocab_size, embed_dim)
-        self.position_embedding = PositionalEmbedding(seq_length, embed_dim)
+        self.position_embedding = PositionalEmbedding(seq_length, embed_dim) #nn.Embedding
         self.target_vocab_size = target_vocab_size
 
         #self.encoder = TransformerEncoder(seq_length, src_vocab_size, embed_dim, num_layers=num_layers, expansion_factor=expansion_factor, n_heads=n_heads)
@@ -161,14 +152,15 @@ class VisualTransformer(nn.Module):
                     if j < num_freeze_layer:
                         for param in layer.parameters():
                             param.requires_grad = False
-                    # else:
-                    #     print(j, layer)
+                    else:
+                        print(j, layer)
 
         #print(timm.list_models("*vit*"))
         dim_feedforward = embed_dim*expansion_factor
 
         decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=n_heads)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
+
 
         self.linear = nn.Linear(embed_dim ,self.target_vocab_size)
 
@@ -178,9 +170,8 @@ class VisualTransformer(nn.Module):
     def forward(self, img, tgt, trg_mask, padding_masks):
         tgt = self.word_embedding(tgt) 
         tgt = self.position_embedding(tgt)
-
         enc_out = self.encoder(img)
-        # print("enc_out",enc_out.shape)   # torch.Size([1, 196, 768])
+        #print("enc_out",enc_out.shape)   # torch.Size([1, 196, 768])
         # print("tgt",tgt.shape)           # torch.Size([1, tgt.shape[1]])
 
         # print("trg_mask",trg_mask.shape) # torch.Size([tgt.shape[1], tgt.shape[1]])
@@ -193,6 +184,49 @@ class VisualTransformer(nn.Module):
         outputs = self.linear(outputs)
         outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
         return outputs
+
+    def decode(self, img, max_seq_len, device):
+        BOS = 2
+        EOS = 3
+        bz = img.size(0)
+        # ref: https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/132907dd272e2cc92e3c10e6c4e783a87ff8893d/transformer/Translator.py#L9
+        
+        # init:
+        enc_out = self.encoder(img)
+        ans_idx = 0   # default
+        assert bz==1
+        gen_seq = np.zeros((bz, max_seq_len)) # [bz, max_seq_len]
+        gen_seq[:,0] = BOS  #[BOS]
+        gen_seq = torch.tensor(gen_seq, dtype=torch.int64).to(device) 
+        
+        # Greedy
+        # start: [BOS] 
+        
+        for step in range(1, max_seq_len):    # decode up to max length 
+            # print("step",step)
+            # print(gen_seq[:, :step])
+            tgt = self.word_embedding(gen_seq[:, :step]) 
+            tgt = self.position_embedding(tgt)
+
+            outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=None, tgt_key_padding_mask=None)
+            outputs = self.linear(outputs)
+            outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
+            # print(outputs.shape)
+            # print(outputs)
+            # print(torch.amax(outputs,1))
+            best_k_idx = torch.argmax(outputs,1)
+            #print("best_k_idx", best_k_idx)
+            gen_seq[:, 1:step+1] = best_k_idx
+            #print(outputs.shape)
+
+            # Locate the position of [EOS]
+            # eos_locs = gen_seq == EOS #[EOS] 
+
+            if gen_seq[:, step]==EOS:
+                break
+            # if step > 4:
+            #     break
+        return gen_seq
 
 
 def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
@@ -228,17 +262,18 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2")
-    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
-    parser.add_argument("--model_option", default="vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch16_224"
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_20_soft_005")
+    parser.add_argument("--batch_size", help="batch size", type=int, default=4)
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=5e-4)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-5)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=2000)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=250)
+    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
-    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=8)
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=20)
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.05)
 
 
@@ -263,6 +298,7 @@ if __name__ == "__main__":
     num_freeze_layer = args.num_freeze_layer
     resize = args.resize
     batch_size = args.batch_size
+    embed_dim = args.embed_dim
     # Leaning rate
     lr = args.learning_rate
     weight_decay = args.weight_decay
@@ -356,7 +392,7 @@ if __name__ == "__main__":
     print("val:", len_dataloader_val)
 
     # model
-    model = VisualTransformer(embed_dim=1024, encoder_model_name=encoder_model_name, 
+    model = VisualTransformer(embed_dim=embed_dim, encoder_model_name=encoder_model_name, 
                               target_vocab_size=target_vocab_size, seq_length=seq_length,
                               num_layers=num_layers,
                               num_freeze_layer=num_freeze_layer)
@@ -383,14 +419,15 @@ if __name__ == "__main__":
     loss_curve_val = []
     start_epoch = 0
 
-    # Load 
-    # resume  = os.path.join(ckpt_path, f"epoch_5_best.pth")
-    # checkpoint = torch.load(resume, map_location = device)
+    # # Load 
+    resume  = os.path.join(ckpt_path, f"epoch_6_best.pth")
+    checkpoint = torch.load(resume, map_location = device)
+    print(f"Load from {resume}")
 
-    # model.load_state_dict(checkpoint['model_state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    # start_epoch = checkpoint['epoch']
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    start_epoch = checkpoint['epoch'] + 1 
 
     for epoch in range(start_epoch, epochs):
         # ========================= Train ==========================
@@ -467,10 +504,21 @@ if __name__ == "__main__":
                 trg_mask =  nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
                 out = model(image, tokenized_ids, trg_mask,padding_masks) # trg_mask, padding_masks)
                 loss = loss_compute(out, tokenized_ids, smoothing)
-                if i%10 == 0:
-                    print("pred:",torch.argmax(out, 1)[0])
-                    print("gth:",gth_ids[0])
-                    print("loss",loss)
+                if i<=20:
+                    pred_ids = model.decode(image[0].unsqueeze(0), 100, device)
+
+                    for p in pred_ids:
+                        p = list(p.cpu())
+                        reconstruct_caption = tokenizer.decode(p)
+                        #print(p) 
+                        #print("reconstruct_caption:")
+                        print(reconstruct_caption)
+
+                    # print("pred:",torch.argmax(out, 1)[0])
+                    print("reconstruct_caption", reconstruct_caption)
+                    # print("gth:",gth_ids[0])
+                    print("gth captions", captions)
+                    #print("loss",loss)
                 val_loss += loss.item()
                 pbar_val.set_postfix(loss=loss.item())
                 loss_curve_val.append(loss.item())

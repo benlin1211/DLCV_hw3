@@ -21,11 +21,14 @@ import pandas as pd
 import numpy as np
 import random
 
+
 from torch.utils.data import Dataset, DataLoader
 import torchvision 
 import torchvision.transforms as transforms
 from tqdm import tqdm
 import argparse
+import clip
+import json
 
 # seed setting
 def same_seeds(seed):
@@ -44,10 +47,10 @@ def same_seeds(seed):
 
 
 
-class ImageCaption(Dataset):
+class ImageVal(Dataset):
     def __init__(self, image_dir, annotation_json_dir, max_length, transform, tokenizer, mode='train'):
         super().__init__()
-        self.image_dir = image_dir # read image according to caption list
+        self.image_dir = image_dir 
         self.transform = transform
         with open(os.path.join(annotation_json_dir), newline='') as jsonfile:
             data = json.load(jsonfile)
@@ -64,21 +67,23 @@ class ImageCaption(Dataset):
         # "[EOS]": 3,
 
     def __len__(self):
-        return len(self.annotations)
+        return len(self.images)
 
     def __getitem__(self, idx):
-        # Get image_id
-        image_id = self.annotations[idx]["image_id"]
-
-        # Get caption
-        caption = self.annotations[idx]["caption"]
-    
-        # Get image with corresponding caption id
-        file_name = [item["file_name"] for item in self.images if item["id"] == image_id] 
-        assert len(file_name) == 1
-        image = Image.open(os.path.join(self.image_dir, file_name[0])).convert('RGB')
+        # read image according to data["images"] list
+        file_name = self.images[idx]["file_name"]
+        #print(file_name)
+        image = Image.open(os.path.join(self.image_dir, file_name)).convert('RGB')
         if self.transform:
             image = self.transform(image)
+            
+        # Get image_id
+        image_id = self.images[idx]["id"]
+
+        # Get caption with corresponding image_id
+        captions = [item["caption"] for item in self.annotations if item["image_id"] == image_id] 
+            
+
 
         # # Tokenize the caption
         # tokenized_caption = self.tokenizer.encode(caption, padding=True)
@@ -88,7 +93,7 @@ class ImageCaption(Dataset):
         #     1 - np.array(tokenized_caption.attention_mask)).astype(bool)
         # print(file_name)
         # print(caption)
-        return image, caption
+        return image, captions, file_name.split(".")[0]
 
 
 class Embedding(nn.Module):
@@ -128,7 +133,7 @@ class PositionalEmbedding(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers=12, expansion_factor=4, n_heads=8):
+    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, expansion_factor=4, n_heads=8):
         super(VisualTransformer, self).__init__()
         
         """  
@@ -145,7 +150,7 @@ class VisualTransformer(nn.Module):
         """
 
         self.word_embedding = nn.Embedding(target_vocab_size, embed_dim)
-        self.position_embedding = PositionalEmbedding(seq_length, embed_dim)
+        self.position_embedding = PositionalEmbedding(seq_length, embed_dim) 
         self.target_vocab_size = target_vocab_size
 
         #self.encoder = TransformerEncoder(seq_length, src_vocab_size, embed_dim, num_layers=num_layers, expansion_factor=expansion_factor, n_heads=n_heads)
@@ -169,12 +174,14 @@ class VisualTransformer(nn.Module):
         # init:
         enc_out = self.encoder(img)
         ans_idx = 0   # default
+        assert bz==1
         gen_seq = np.zeros((bz, max_seq_len)) # [bz, max_seq_len]
         gen_seq[:,0] = BOS  #[BOS]
         gen_seq = torch.tensor(gen_seq, dtype=torch.int64).to(device) 
         
         # Greedy
         # start: [BOS] 
+        
         for step in range(1, max_seq_len):    # decode up to max length 
             # print("step",step)
             # print(gen_seq[:, :step])
@@ -188,14 +195,15 @@ class VisualTransformer(nn.Module):
             # print(outputs)
             # print(torch.amax(outputs,1))
             best_k_idx = torch.argmax(outputs,1)
+            next_token = best_k_idx[:,-1]
             #print("best_k_idx", best_k_idx)
-            gen_seq[:, 1:step+1] = best_k_idx
+            #print("next_token", next_token)
+            gen_seq[:, step] = next_token 
             #print(outputs.shape)
 
             # Locate the position of [EOS]
             # eos_locs = gen_seq == EOS #[EOS] 
-
-            # assert bz = 1
+            #print("gen_seq",gen_seq[:, :step], "new", gen_seq[:, step])
             if gen_seq[:, step]==EOS:
                 break
             # if step > 4:
@@ -244,17 +252,22 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2")
-    parser.add_argument("--batch_size", help="batch size", type=int, default=1)
-    parser.add_argument("--model_option", default="vit_base_patch16_224") #"vit_base_resnet50_384" 
+    parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
+
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_20_soft_005")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_13_best.pth")
+    parser.add_argument("--batch_size", help="batch size", type=int, default=4)
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=5e-4)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-5)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=2000)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=250)
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
-    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.1)
+    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20)
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=20)
+    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.05)
 
 
     args = parser.parse_args()
@@ -270,14 +283,18 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    device = torch.device("cuda")
+    #device = torch.device("cuda")
 
     print("Using", device)
+    des_path = args.des_path
+    resume_name = args.resume_name 
 
     encoder_model_name= args.model_option 
     num_layers = args.num_layers 
+    num_freeze_layer = args.num_freeze_layer
     resize = args.resize
-    batch_size = args.batch_size
+    batch_size = 1 # args.batch_size
+    embed_dim = args.embed_dim
     # Leaning rate
     lr = args.learning_rate
     weight_decay = args.weight_decay
@@ -339,13 +356,8 @@ if __name__ == "__main__":
     annotation_dir_val = os.path.join(data_dir,"val.json")     # "./hw3_data/p2_data/val.json"
 
     max_pos_emb = 128
-    dataset_train = ImageCaption(image_dir=image_dir_train, 
-                                annotation_json_dir=annotation_dir_train, 
-                                max_length=max_pos_emb, 
-                                transform=train_transform, 
-                                tokenizer=tokenizer,
-                                mode="train")
-    dataset_val = ImageCaption(image_dir=image_dir_val, 
+
+    dataset_val = ImageVal(image_dir=image_dir_val, 
                                 annotation_json_dir=annotation_dir_val, 
                                 max_length=max_pos_emb, 
                                 transform=val_transform,
@@ -357,68 +369,72 @@ if __name__ == "__main__":
     # )
     # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
-    data_loader_train = DataLoader(dataset_train, batch_size, shuffle=True, num_workers=0)
     data_loader_val = DataLoader(dataset_val, batch_size, shuffle=False, drop_last=False, num_workers=0)
 
     # Debugger
-    len_dataloader_train = len(data_loader_train)
-    #data_iter_train = iter(data_loader_train)
     len_dataloader_val = len(data_loader_val)
     #data_iter_val = iter(data_loader_val)
     
     pred_list = []
     filename_list = []
-    print("train:", len_dataloader_train)
     print("val:", len_dataloader_val)
 
     # model
-    model = VisualTransformer(embed_dim=768, encoder_model_name=encoder_model_name, 
-                              target_vocab_size=target_vocab_size, seq_length=seq_length)
+    model = VisualTransformer(embed_dim=embed_dim, encoder_model_name=encoder_model_name, 
+                              target_vocab_size=target_vocab_size, seq_length=seq_length,
+                              num_layers=num_layers,
+                              num_freeze_layer=num_freeze_layer)
     show_n_param(model)
     model = model.to(device)
 
-    # optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    # scheduler
-    lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, drop_step, gamma)
-    criterion = nn.CrossEntropyLoss() 
-    
-    #model.eval()
-    best_loss = 20
-    loss_curve_train = []
-    loss_curve_val = []
 
     # Load 
-
-    resume  = os.path.join(ckpt_path, f"epoch_0.pth")
+    
+    resume  = os.path.join(ckpt_path, resume_name)
+    print(f"load from {resume}")
     checkpoint = torch.load(resume, map_location = device)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     model.eval()
-    val_loss = 0
 
-    max_seq_len = 100
+    max_seq_len = 50
+    result = {}
     with torch.no_grad():
-        for i, data in enumerate(data_loader_val):
+        #for i, data in enumerate(data_loader_val): 
+        for data in tqdm(data_loader_val):
             #data = data_iter_val.next()
-            image, _caption = data 
-            print(_caption)
+            image, _caption, file_name = data 
             image = image.to(device)
             # preprocessing 
 
             pred_ids = model.decode(image, max_seq_len, device)
 
-            for p in pred_ids:
+            for _, p in enumerate(pred_ids):
                 p = list(p.cpu())
                 reconstruct_caption = tokenizer.decode(p)
                 #print(p) 
                 #print("reconstruct_caption:")
-                print(reconstruct_caption)
+                #print(reconstruct_caption)
+                # print(_)
+            # print("file_name", file_name)
+            # print("caption",_caption)
+            # print("reconstruct_caption:", reconstruct_caption)
 
-            # if i == 10:
-            #     break
+            result[file_name[0]] = reconstruct_caption
 
+    #print(result)
+
+    # save as json
+    json_name = des_path.split('/')[-1]
+    #print(json_name)
+    dest_folder = des_path.replace(json_name,'') 
+    #print(dest_folder)
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    with open(des_path, "w") as f:
+        json.dump(result, f)
+    print(f"Done. json file is saved at {des_path}")
 
 
 

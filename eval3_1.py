@@ -111,7 +111,7 @@ if __name__ == '__main__':
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    #print("Using ", device)
+    device = torch.device("cuda")
     print("Using ", device)
  
     model, preprocess = clip.load("ViT-B/32", device=device)
