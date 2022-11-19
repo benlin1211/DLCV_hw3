@@ -31,6 +31,7 @@ You can run the following command to install all the packages listed in the requ
 ### Install module
 
     pip3 install --target=/home/zhongwei/.conda/envs/DLCV-hw2/bin/ -r requirements.txt
+    git+https://github.com/bckim92/language-evaluation.git
 
 Note that using packages with different versions will very likely lead to compatibility issues, so make sure that you install the correct version if one is specified above. E-mail or ask the TAs first if you want to import other packages.
 
