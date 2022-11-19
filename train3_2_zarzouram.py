@@ -446,9 +446,9 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=2e-5)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-7)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=32)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-4)
+    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-9)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20) #6
@@ -593,8 +593,8 @@ if __name__ == "__main__":
     # optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     # scheduler
-    lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, drop_step, gamma)
+    # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, drop_step=1, gamma)
     
     # clip computer
     # clip_model, _preprocess = clip.load("ViT-B/32", device=device)
