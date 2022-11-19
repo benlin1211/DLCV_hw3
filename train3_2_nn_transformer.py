@@ -268,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1280) # 16*96
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=12)
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=16)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=32)
     # ====================================================================== 
     parser.add_argument("--batch_size", help="batch size", type=int, default=4)

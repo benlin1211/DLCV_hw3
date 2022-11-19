@@ -1,11 +1,8 @@
-# ref: https://github.com/zarzouram/image_captioning_with_transformers/tree/main/code/models/IC_encoder_decoder
 # Ref: 
 # https://rwightman.github.io/pytorch-image-models/models/vision-transformer/
 # https://www.kaggle.com/code/arunmohan003/transformer-from-scratch-using-pytorch/notebook
 
 import timm
-from copy import deepcopy
-
 import urllib
 import os
 import glob
@@ -14,10 +11,7 @@ from torch.autograd import Variable
 
 import torch
 import matplotlib.pyplot as plt
-from torch import Tensor
-from typing import Tuple
 import torch.nn as nn
-from torch.nn import MultiheadAttention
 from tokenizers import Tokenizer
 # https://huggingface.co/docs/tokenizers/api/tokenizer
 import json
@@ -26,14 +20,21 @@ import math,copy,re
 import pandas as pd
 import numpy as np
 import random
+import glob
+
 
 from torch.utils.data import Dataset, DataLoader
 import torchvision 
 import torchvision.transforms as transforms
 from tqdm import tqdm
 import argparse
+import json
 
- 
+from torch import Tensor
+from typing import Tuple
+from torch.nn import MultiheadAttention
+from copy import deepcopy
+
 # seed setting
 def same_seeds(seed):
     # Python built-in random module
@@ -47,47 +48,6 @@ def same_seeds(seed):
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
-
-
-
-
-class ImageCaption(Dataset):
-    def __init__(self, image_dir, annotation_json_dir, max_length, transform, tokenizer, mode='train'):
-        super().__init__()
-        self.image_dir = image_dir # read image according to caption list
-        self.transform = transform
-        with open(os.path.join(annotation_json_dir), newline='') as jsonfile:
-            data = json.load(jsonfile)
-        self.annotations = data["annotations"]
-        self.images = data["images"]
-
-        self.max_length = max_length + 1
-        self.tokenizer = tokenizer
-        self.mode = mode
-        self.pad_token_id = 0
-        # "[PAD]": 0,
-        # "[UNK]": 1,
-        # "[BOS]": 2,
-        # "[EOS]": 3,
-
-    def __len__(self):
-        return len(self.annotations)
-
-    def __getitem__(self, idx):
-        # read image according to caption list
-        # Get image_id
-        image_id = self.annotations[idx]["image_id"]
-
-        # Get caption
-        caption = self.annotations[idx]["caption"]
-    
-        # Get image with corresponding caption id
-        file_name = [item["file_name"] for item in self.images if item["id"] == image_id] 
-        assert len(file_name) == 1
-        image = Image.open(os.path.join(self.image_dir, file_name[0])).convert('RGB')
-        if self.transform:
-            image = self.transform(image)
-        return image, caption
 
 
 class Embedding(nn.Module):
@@ -125,6 +85,30 @@ class PositionalEmbedding(nn.Module):
         x = self.dropout(x)
         return x
 
+
+class ImageVal(Dataset):
+    def __init__(self, image_dir, transform):
+        super().__init__()
+        self.file_names = glob.glob(os.path.join(image_dir, "*.jpg"))  
+        self.transform = transform
+
+        # "[PAD]": 0,
+        # "[UNK]": 1,
+        # "[BOS]": 2,
+        # "[EOS]": 3,
+
+    def __len__(self):
+        return len(self.file_names)
+
+    def __getitem__(self, idx):
+        # read image according to data["images"] list
+        file_name = self.file_names[idx]
+        #print(file_name)
+        image = Image.open(file_name).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+
+        return image, file_name.split("/")[-1].split(".")[0]
 
 class DecoderLayer(nn.Module):
 
@@ -411,30 +395,6 @@ class VisualTransformer(nn.Module):
         outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
         return outputs
 
-def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
-
-    def lr_lambda(current_step: int):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
-        return max(
-            0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
-        )
-
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
-# 版权声明：本文为CSDN博主「旺旺棒棒冰」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
-# 原文链接：https://blog.csdn.net/ltochange/article/details/116524264
-
-def loss_compute(pred, gth, smoothing):
-    # https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/132907dd272e2cc92e3c10e6c4e783a87ff8893d/train.py#L40 
-    PAD = 0
-    #loss = F.cross_entropy(pred, gth, ignore_index=PAD, label_smoothing=smoothing)# ,reduction='sum')
-    # print(pred)
-    # print(gth)
-    criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing)
-    loss = criterion(pred, gth)
-    # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-    return loss
-
 def show_n_param(model):
     n_parameters = sum(p.numel()
                        for p in model.parameters() if p.requires_grad)
@@ -444,25 +404,20 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    # ======================================================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_base_resnet50_384_L8")
-    
-    parser.add_argument("--model_option",  default= "vit_base_resnet50_384") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b"
+    parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
+    parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
+    parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
+    # ======================================================================    
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_zarzouram_layer_8")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_5_best.pth")
+
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=32)
     # ====================================================================== 
-    parser.add_argument("--batch_size", help="batch size", type=int, default=8)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=2e-5)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-6)
-    parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
-    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=50)
-    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
-
-
     args = parser.parse_args()
     print(vars(args))
 
@@ -476,106 +431,46 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
+    device = torch.device("cuda")
 
     print("Using", device)
+    des_path = args.des_path
+    src_path = args.src_path
+    
+    tokenizer_path = args.tokenizer_path
+    ckpt_path = args.ckpt_path
+    resume_name = args.resume_name 
 
     encoder_model_name= args.model_option 
     num_layers = args.num_layers 
     num_freeze_layer = args.num_freeze_layer
     resize = args.resize
-    batch_size = args.batch_size
+    batch_size = 1 # args.batch_size
     embed_dim = args.embed_dim
     n_heads = args.n_heads
-    # Leaning rate
-    lr = args.learning_rate
-    weight_decay = args.weight_decay
 
-    # loss smootthing
-    smoothing = args.smoothing
-    
-    # Epoch
-    epochs = args.n_epochs
-    gradient_clip = 5.0
-    # lr scheduler
-    num_warmup_steps = args.scheduler_warmup_steps
-    gamma = args.gamma
-
-    root_dir = "./hw3_data"
-    ckpt_path= args.ckpt_path
-    os.makedirs(ckpt_path, exist_ok=True)
-    
 
     # Tokenizer setting
-    tokenizer = Tokenizer.from_file(os.path.join(root_dir, "caption_tokenizer.json"))
-    
+    tokenizer = Tokenizer.from_file(tokenizer_path)
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
     seq_length = 196 # I don't know why...
 
-    # with open("./hw3_data/p2_data/train.json", newline='') as jsonfile:
-    #     data = json.load(jsonfile)
-
-    # example_caption = data["annotations"][0]["caption"]
-    # print("example_caption", example_caption)
-    # tokenized_caption = tokenizer.encode(example_caption)
-    # tokenized_id = list(torch.tensor(tokenized_caption.ids))
-    # print("id", tokenized_id)
-    # reconstruct_caption = tokenizer.decode(tokenized_id)
-    # print("reconstruct_caption", reconstruct_caption)
-
-
-    # Dataset
-    train_transform = transforms.Compose([
-        # transforms.Lambda(under_max),
-
-        transforms.Resize((resize,resize)),
-        transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    ])
 
     val_transform = transforms.Compose([
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
-    data_dir = os.path.join(root_dir,"p2_data") # "./hw3_data/p2_data"
-    # TODO: set the following into Dataset.
-    image_dir_train = os.path.join(data_dir,"images/train") # "./hw3_data/p2_data/images/train"
-    annotation_dir_train = os.path.join(data_dir,"train.json") # "./hw3_data/p2_data/train.json"
-    image_dir_val = os.path.join(data_dir,"images/val")     # "./hw3_data/p2_data/images/val"
-    annotation_dir_val = os.path.join(data_dir,"val.json")     # "./hw3_data/p2_data/val.json"
 
-    max_pos_emb = 128
-    dataset_train = ImageCaption(image_dir=image_dir_train, 
-                                annotation_json_dir=annotation_dir_train, 
-                                max_length=max_pos_emb, 
-                                transform=train_transform, 
-                                tokenizer=tokenizer,
-                                mode="train")
-    dataset_val = ImageCaption(image_dir=image_dir_val, 
-                                annotation_json_dir=annotation_dir_val, 
-                                max_length=max_pos_emb, 
-                                transform=val_transform,
-                                tokenizer=tokenizer,
-                                mode="validate")
-    # sampler_train = torch.utils.data.RandomSampler(dataset_train)
-    # batch_sampler_train = torch.utils.data.BatchSampler(
-    #     sampler_train, batch_size, drop_last=True
-    # )
-    # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+    dataset_val = ImageVal(image_dir=src_path, 
+                            transform=val_transform)
 
-    data_loader_train = DataLoader(dataset_train, batch_size, shuffle=True, num_workers=0)
     data_loader_val = DataLoader(dataset_val, batch_size, shuffle=False, drop_last=False, num_workers=0)
 
     # Debugger
-    len_dataloader_train = len(data_loader_train)
     len_dataloader_val = len(data_loader_val)
-
+    #data_iter_val = iter(data_loader_val)
     
-    pred_list = []
-    filename_list = []
-    print("train:", len_dataloader_train)
     print("val:", len_dataloader_val)
 
     # model
@@ -584,204 +479,61 @@ if __name__ == "__main__":
                               num_layers=num_layers,
                               num_freeze_layer=num_freeze_layer,
                               n_heads=n_heads)
-    model = model.to(device)
-    #print(model)
     show_n_param(model)
-    
-    
-    # optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    # scheduler
-    lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, drop_step, gamma)
-    
-    # clip computer
-    # clip_model, _preprocess = clip.load("ViT-B/32", device=device)
-    # clip_model.eval()
-    cos = torch.nn.CosineSimilarity(dim=1)
-    w=2.5
+    model = model.to(device)
 
-    #best_loss = 1000
-    best_clip_score = -1
-    loss_curve_train = []
-    loss_curve_val = []
-    start_epoch = 0
 
-    # # Load 
-    # resume  = os.path.join(ckpt_path, f"epoch_2_best.pth")
-    # checkpoint = torch.load(resume, map_location = device)
-    # print(f"Load from {resume}")
-
-    # model.load_state_dict(checkpoint['model_state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    # start_epoch = checkpoint['epoch'] + 1 
-
-    for epoch in range(start_epoch, epochs):
-        # ========================= Train ==========================
-        model.train()
-        print("Train")
-        pbar = tqdm(data_loader_train)
-        pbar.set_description(f"Epoch {epoch}")
-        for data in pbar:
-            #data = data_iter_train.next()
-            image, captions = data    
-            image = image.to(device)
-            # print(image.shape)
-            # print(captions)
-
-            # preprocessing
-            tokenized_captions = tokenizer.encode_batch(captions)
-            tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-            tokenized_ids = tokenized_ids.to(device)
-            # Shift
-            gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-            gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-            padding_masks = torch.tensor([c.attention_mask for c in tokenized_captions], dtype=torch.bool).to(device) #1 not seen
-            padding_masks = ~padding_masks
-
-            #padding_masks[padding_masks==1] = float('-inf')
-            # print(tokenized_ids)
-            # print(padding_masks)
-            # tokens = [c.tokens for c in tokenized_captions]
-            # n_sequences = [c.n_sequences for c in tokenized_captions]
-            trg_mask = nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
-            # https://towardsdatascience.com/a-detailed-guide-to-pytorchs-nn-transformer-module-c80afbc9ffb1
-            # print(trg_mask)
-            out = model(image, tokenized_ids, trg_mask, padding_masks)
-
-            # print("out", out.shape)
-            # print("out", out)
-            # print("in", tokenized_ids)
-            # print("gth",gth_ids)
-            # print("out_argmax", torch.argmax(out,1))
-            #print("out_amax", torch.amax(out,1))
-            loss = loss_compute(out, gth_ids, smoothing)
-            
-            model.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
-            optimizer.step()
-            lr_scheduler.step()
-
-            # Record
-            pbar.set_postfix(loss=loss.item(), lr = optimizer.param_groups[0]['lr'])
-            loss_curve_train.append(loss.item())
-
-        # ========================= Eval: how to do ? ==========================
-        model.eval()
-        print("Eval")
-        pbar_val = tqdm(enumerate(data_loader_val))
-        pbar_val.set_description(f"Epoch {epoch}")
-        val_loss = 0
-        with torch.no_grad():
-            for i, data in pbar_val:
-                image, captions = data 
-                image = image.to(device)
-                # preprocessing 
-                tokenized_captions = tokenizer.encode_batch(captions)
-                tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-                tokenized_ids = tokenized_ids.to(device)
-                # Shift
-                gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-                gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-                padding_masks = torch.tensor([c.attention_mask for c in tokenized_captions], dtype=torch.bool).to(device) #1 not seen
-                padding_masks = ~padding_masks  
-                trg_mask =  nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
-                out = model(image, tokenized_ids, trg_mask,padding_masks) # trg_mask, padding_masks)
-                loss = loss_compute(out, tokenized_ids, smoothing)
-                if i<=20:
-                    pred_ids = model.decode(image[0].unsqueeze(0), 100, device)
-
-                    for p in pred_ids:
-                        p = list(p.cpu())
-                        reconstruct_caption = tokenizer.decode(p)
-                        #print(p) 
-                        #print("reconstruct_caption:")
-                        print(reconstruct_caption)
-
-                    # print("pred:",torch.argmax(out, 1)[0])
-                    print("reconstruct_caption", reconstruct_caption)
-                    # print("gth:",gth_ids[0])
-                    print("gth captions", captions)
-                    #print("loss",loss)
-                else:
-                    break
-                val_loss += loss.item()
-                pbar_val.set_postfix(loss=loss.item())
-                loss_curve_val.append(loss.item())
-                
-        clip_scores = []
-        # with torch.no_grad():
-        #     for data in pbar_val:
-        #         image, captions = data 
-        #         image = image.to(device)
-        #         # preprocessing 
-        #         tokenized_captions = tokenizer.encode_batch(captions)
-        #         tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-        #         tokenized_ids = tokenized_ids.to(device)
-        #         # Shift
-        #         gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-        #         gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-        #         padding_masks = torch.tensor([c.attention_mask for c in tokenized_captions], dtype=torch.bool).to(device) #1 not seen
-        #         padding_masks = ~padding_masks  
-        #         trg_mask =  nn.Transformer.generate_square_subsequent_mask(tokenized_ids.size(-1)).to(device) #1 not seen
-                
-        #         out = model(image, tokenized_ids, None,None) # trg_mask, padding_masks)
-        #         #text = tokenizer.decode_batch(torch.argmax(out,1).cpu().numpy())
-        #         text_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-        #         text_ids[:,1:] = torch.argmax(out,1)[:,:-1]
-        #         text_ids[:,0] = 2 # BOS
-        #         text = tokenizer.decode_batch(text_ids.cpu().numpy())
-        #         #print("text", text)
-                
-        #         # compute clip
-        #         image_embedding = clip_model.encode_image(image)
-        #         text_ids = clip.tokenize(text).to(device)
-        #         text_embedding = clip_model.encode_text(text_ids)
-        #         # cos_similarity =  a*b/|a|/|b|
-        #         score = cos(image_embedding, text_embedding)
-
-        #         mean_score = score.mean()
-        #         _clip = w*max(mean_score, 0).cpu().numpy()
-
-        #         pbar_val.set_postfix(clip=_clip, lr = optimizer.param_groups[0]['lr'])
-        #         clip_scores.append(_clip)
-        
-        # clip_score = sum(clip_scores)/len(clip_scores)
-        if True: #best_clip_score <= clip_score:
-            #best_clip_score = clip_score
-            save_as = os.path.join(ckpt_path, f"epoch_{epoch}_best.pth")
-            print(f"New best clip score: {best_clip_score}. Saving emodel at {save_as}")
-            torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': lr_scheduler.state_dict(),
-                    }, save_as)
-        
     # Load 
-    resume  = os.path.join(ckpt_path, f"epoch_0.pth")
+    
+    resume  = os.path.join(ckpt_path, resume_name)
+    print(f"load from {resume}")
     checkpoint = torch.load(resume, map_location = device)
-
     model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    epoch = checkpoint['epoch']
+
+    model.eval()
+
+    max_seq_len = 50
+    result = {}
+    with torch.no_grad():
+        #for i, data in enumerate(data_loader_val): 
+        for data in tqdm(data_loader_val):
+            #data = data_iter_val.next()
+            image, file_name = data 
+            image = image.to(device)
+            # preprocessing 
+
+            pred_ids = model.decode(image, max_seq_len, device)
+
+            for _, p in enumerate(pred_ids):
+                p = list(p.cpu())
+                reconstruct_caption = tokenizer.decode(p)
+                #print(p) 
+                #print("reconstruct_caption:")
+                #print(reconstruct_caption)
+                # print(_)
+            # print("file_name", file_name)
+            # print("caption",_caption)
+            # print("reconstruct_caption:", reconstruct_caption)
+            result[file_name[0]] = reconstruct_caption
+
+    #print(result)
+
+    # save as json
+    json_name = des_path.split('/')[-1]
+    #print(json_name)
+    dest_folder = des_path.replace(json_name,'') 
+    #print(dest_folder)
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    with open(des_path, "w") as f:
+        json.dump(result, f)
+    print(f"Done. json file is saved at {des_path}")
 
 
-    print("OK")
 
-    df = pd.DataFrame() # apply pd.DataFrame format 
-    df["loss_train"] = loss_curve_train
-    csv_name = os.path.join(ckpt_path, f"loss_train.csv")
-    df.to_csv(csv_name, index = False)
+    
 
 
-    df = pd.DataFrame() # apply pd.DataFrame format 
-    df["loss_val"] = loss_curve_val
-    csv_name = os.path.join(ckpt_path, f"loss_val.csv")
-    df.to_csv(csv_name, index = False)
+
+

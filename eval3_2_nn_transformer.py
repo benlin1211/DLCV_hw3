@@ -232,8 +232,8 @@ if __name__ == "__main__":
     parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
     # ======================================================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_base_patch32_224_sam_num_layers_12")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_2_best.pth")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./vit_huge_patch14_224_clip_laion2b")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_5_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_base_patch32_224_sam") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
