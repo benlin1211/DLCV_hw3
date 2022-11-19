@@ -445,9 +445,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # ======================================================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_base_resnet50_384_L8")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_base_patch32_224_sam_L8")
     
-    parser.add_argument("--model_option",  default= "vit_base_resnet50_384") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b"
+    parser.add_argument("--model_option",  default= "vit_base_patch32_224_sam") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96
