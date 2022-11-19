@@ -446,21 +446,21 @@ def show_n_param(model):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--batch_size", help="batch size", type=int, default=8)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
     parser.add_argument("--learning_rate", help="learning rate", type=float, default=2e-5)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-6)
+    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-7)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=50)
+    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20) #6
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_base_patch8_224_L12") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_large_patch14_224_clip_laion2b_L8") 
     # patch 越小越強
-    parser.add_argument("--model_option",  default= "vit_base_patch8_224") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     # ================================= TRAIN ===================================== 
 
