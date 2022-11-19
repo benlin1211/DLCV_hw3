@@ -24,7 +24,7 @@ if __name__ == '__main__':
     # csv_path = "./output_p1/pred.csv"
     parser = argparse.ArgumentParser(description="p 3-1",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--csv_path", help="csv_path", default = "./output_p1/pred.csv")
+    parser.add_argument("--csv_path", help="csv_path", default = "./hw3/output_p1/pred.csv")
     args = parser.parse_args()
     csv_path = args.csv_path
 

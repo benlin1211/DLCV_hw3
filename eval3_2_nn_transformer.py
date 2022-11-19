@@ -20,6 +20,7 @@ import math,copy,re
 import pandas as pd
 import numpy as np
 import random
+import glob
 
 
 from torch.utils.data import Dataset, DataLoader
@@ -27,7 +28,6 @@ import torchvision
 import torchvision.transforms as transforms
 from tqdm import tqdm
 import argparse
-import clip
 import json
 
 # seed setting
@@ -48,52 +48,28 @@ def same_seeds(seed):
 
 
 class ImageVal(Dataset):
-    def __init__(self, image_dir, annotation_json_dir, max_length, transform, tokenizer, mode='train'):
+    def __init__(self, image_dir, transform):
         super().__init__()
-        self.image_dir = image_dir 
+        self.file_names = glob.glob(os.path.join(image_dir, "*.jpg"))  
         self.transform = transform
-        with open(os.path.join(annotation_json_dir), newline='') as jsonfile:
-            data = json.load(jsonfile)
-        self.annotations = data["annotations"]
-        self.images = data["images"]
 
-        self.max_length = max_length + 1
-        self.tokenizer = tokenizer
-        self.mode = mode
-        self.pad_token_id = 0
         # "[PAD]": 0,
         # "[UNK]": 1,
         # "[BOS]": 2,
         # "[EOS]": 3,
 
     def __len__(self):
-        return len(self.images)
+        return len(self.file_names)
 
     def __getitem__(self, idx):
         # read image according to data["images"] list
-        file_name = self.images[idx]["file_name"]
+        file_name = self.file_names[idx]
         #print(file_name)
-        image = Image.open(os.path.join(self.image_dir, file_name)).convert('RGB')
+        image = Image.open(file_name).convert('RGB')
         if self.transform:
             image = self.transform(image)
-            
-        # Get image_id
-        image_id = self.images[idx]["id"]
 
-        # Get caption with corresponding image_id
-        captions = [item["caption"] for item in self.annotations if item["image_id"] == image_id] 
-            
-
-
-        # # Tokenize the caption
-        # tokenized_caption = self.tokenizer.encode(caption, padding=True)
-        # tokenized_caption_ids = torch.tensor(tokenized_caption.ids)
-
-        # cap_mask = (
-        #     1 - np.array(tokenized_caption.attention_mask)).astype(bool)
-        # print(file_name)
-        # print(caption)
-        return image, captions, file_name.split(".")[0]
+        return image, file_name.split("/")[-1].split(".")[0]
 
 
 class Embedding(nn.Module):
@@ -254,15 +230,17 @@ if __name__ == "__main__":
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
     parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
+    parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
+    # ======================================================================    
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_all_freeze_layer_4_nhead_16")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_17_best.pth")
 
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_20_soft_005")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_0_best.pth")
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
     parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
-    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=20)
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=4)
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=24)
 
     args = parser.parse_args()
     print(vars(args))
@@ -281,6 +259,10 @@ if __name__ == "__main__":
 
     print("Using", device)
     des_path = args.des_path
+    src_path = args.src_path
+    
+    tokenizer_path = args.tokenizer_path
+    ckpt_path = args.ckpt_path
     resume_name = args.resume_name 
 
     encoder_model_name= args.model_option 
@@ -291,65 +273,21 @@ if __name__ == "__main__":
     embed_dim = args.embed_dim
     n_heads = args.n_heads
 
-    root_dir = "./hw3_data"
-    ckpt_path= args.ckpt_path
-    os.makedirs(ckpt_path, exist_ok=True)
-    
 
     # Tokenizer setting
-    tokenizer = Tokenizer.from_file(os.path.join(root_dir, "caption_tokenizer.json"))
-    
+    tokenizer = Tokenizer.from_file(tokenizer_path)
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
     seq_length = 196 # I don't know why...
 
-    # with open("./hw3_data/p2_data/train.json", newline='') as jsonfile:
-    #     data = json.load(jsonfile)
-
-    # example_caption = data["annotations"][0]["caption"]
-    # print("example_caption", example_caption)
-    # tokenized_caption = tokenizer.encode(example_caption)
-    # tokenized_id = list(torch.tensor(tokenized_caption.ids))
-    # print("id", tokenized_id)
-    # reconstruct_caption = tokenizer.decode(tokenized_id)
-    # print("reconstruct_caption", reconstruct_caption)
-
-
-    # Dataset
-    train_transform = transforms.Compose([
-        # transforms.Lambda(under_max),
-
-        transforms.Resize((resize,resize)),
-        transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    ])
 
     val_transform = transforms.Compose([
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
-    data_dir = os.path.join(root_dir,"p2_data") # "./hw3_data/p2_data"
-    # TODO: set the following into Dataset.
-    image_dir_train = os.path.join(data_dir,"images/train") # "./hw3_data/p2_data/images/train"
-    annotation_dir_train = os.path.join(data_dir,"train.json") # "./hw3_data/p2_data/train.json"
-    image_dir_val = os.path.join(data_dir,"images/val")     # "./hw3_data/p2_data/images/val"
-    annotation_dir_val = os.path.join(data_dir,"val.json")     # "./hw3_data/p2_data/val.json"
 
-    max_pos_emb = 128
-
-    dataset_val = ImageVal(image_dir=image_dir_val, 
-                                annotation_json_dir=annotation_dir_val, 
-                                max_length=max_pos_emb, 
-                                transform=val_transform,
-                                tokenizer=tokenizer,
-                                mode="validate")
-    # sampler_train = torch.utils.data.RandomSampler(dataset_train)
-    # batch_sampler_train = torch.utils.data.BatchSampler(
-    #     sampler_train, batch_size, drop_last=True
-    # )
-    # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+    dataset_val = ImageVal(image_dir=src_path, 
+                            transform=val_transform)
 
     data_loader_val = DataLoader(dataset_val, batch_size, shuffle=False, drop_last=False, num_workers=0)
 
@@ -357,8 +295,6 @@ if __name__ == "__main__":
     len_dataloader_val = len(data_loader_val)
     #data_iter_val = iter(data_loader_val)
     
-    pred_list = []
-    filename_list = []
     print("val:", len_dataloader_val)
 
     # model
@@ -386,7 +322,7 @@ if __name__ == "__main__":
         #for i, data in enumerate(data_loader_val): 
         for data in tqdm(data_loader_val):
             #data = data_iter_val.next()
-            image, _caption, file_name = data 
+            image, file_name = data 
             image = image.to(device)
             # preprocessing 
 
@@ -402,7 +338,6 @@ if __name__ == "__main__":
             # print("file_name", file_name)
             # print("caption",_caption)
             # print("reconstruct_caption:", reconstruct_caption)
-
             result[file_name[0]] = reconstruct_caption
 
     #print(result)
