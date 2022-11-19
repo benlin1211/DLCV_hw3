@@ -1,8 +1,11 @@
+# ref: https://github.com/zarzouram/image_captioning_with_transformers/tree/main/code/models/IC_encoder_decoder
 # Ref: 
 # https://rwightman.github.io/pytorch-image-models/models/vision-transformer/
 # https://www.kaggle.com/code/arunmohan003/transformer-from-scratch-using-pytorch/notebook
 
 import timm
+from copy import deepcopy
+
 import urllib
 import os
 import glob
@@ -11,7 +14,10 @@ from torch.autograd import Variable
 
 import torch
 import matplotlib.pyplot as plt
+from torch import Tensor
+from typing import Tuple
 import torch.nn as nn
+from torch.nn import MultiheadAttention
 from tokenizers import Tokenizer
 # https://huggingface.co/docs/tokenizers/api/tokenizer
 import json
@@ -120,6 +126,177 @@ class PositionalEmbedding(nn.Module):
         return x
 
 
+class DecoderLayer(nn.Module):
+
+    def __init__(self, d_model: int, num_heads: int, feedforward_dim: int,
+                 dropout: float):
+        super(DecoderLayer, self).__init__()
+        """
+        param:
+        d_model:    features size.
+                    int
+        num_heads:  number of heads in the multiheadattention model.
+                    int
+        dropout:    dropout value
+                    float
+        """
+
+        self.dec_self_attn = MultiheadAttention(d_model,
+                                                num_heads,
+                                                dropout=dropout)
+        self.multihead_attn = MultiheadAttention(d_model,
+                                                 num_heads,
+                                                 dropout=dropout)
+
+        self.self_attn_norm = nn.LayerNorm(d_model)
+        self.multihead_norm = nn.LayerNorm(d_model)
+        self.self_attn_dropout = nn.Dropout(dropout)
+        self.multihead_dropout = nn.Dropout(dropout)
+
+        self.ff = nn.Sequential(nn.Linear(d_model, feedforward_dim),
+                                nn.ReLU(inplace=True), nn.Dropout(p=dropout),
+                                nn.Linear(feedforward_dim, d_model))
+
+        self.ff_norm = nn.LayerNorm(d_model)
+        self.ff_dropout = nn.Dropout(dropout)
+
+    def forward(self, dec_inputs: Tensor, enc_outputs: Tensor,
+                tgt_mask: Tensor,
+                tgt_pad_mask: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        param:
+        dec_inputs:     Captions to decode
+                        Tensor
+                        [max_len, batch_size, embed_dim]
+        enc_outputs:    Encoded image to decode
+                        Tensor
+                        [encode_size^2=196, batch_size, embed_dim]
+        tgt_mask:       Mask to ensure that decoder doesn't look at future
+                        tokens from a given subsequence
+                        [max_len , max_len]
+        tgt_pad_mask:   Mask to ensure that decoder doesn't attend pad tokens
+                        [batch_size , max_len]
+        outputs:
+        output:         Decoder output
+                        Tensor
+                        [max_len, batch_size, embed_dim]
+        attn:           Attension weights
+                        Tensor
+                        [layer_num, batch_size, head_num, max_len,
+                        encode_size^2]
+                        To be able to do so, I have changed the code at
+                        /.virtualenvs/<env_name>/lib/python3.8/site-packages/torch/nn/functional.py
+                        line 4818 and changed
+                        `return attn_output, attn_output_weights.sum(dim=1) /
+                        num_heads` to be
+                        `return attn_output, attn_output_weights`
+        """
+        # self attention + resedual summation + norm
+        output, _ = self.dec_self_attn(dec_inputs,
+                                       dec_inputs,
+                                       dec_inputs,
+                                       attn_mask=tgt_mask,
+                                       key_padding_mask=tgt_pad_mask)
+        output = dec_inputs + self.self_attn_dropout(output)
+        output = self.self_attn_norm(output)  # type: Tensor
+
+        # # self attention + residual + norm + FF
+        output2, attns = self.multihead_attn(output, enc_outputs, enc_outputs)
+        output = output + self.multihead_dropout(output2)
+        output = self.multihead_norm(output)
+
+        output2 = self.ff(output)  # type: Tensor
+        output = self.ff_norm(output + self.ff_dropout(output2))
+
+        return output, attns
+
+
+class Decoder(nn.Module):
+    """
+    param:
+    layer:          an instance of the EecoderLayer() class
+    vocab_size:     the number of vocabulary
+                    int
+    d_model:        size of features in the transformer inputs
+                    int
+    num_layers:     the number of decoder-layers
+                    int
+    max_len:        maximum len pf target captions
+                    int
+    dropout:        dropout value
+                    float
+    pad_id:         padding token id
+                    float
+    """
+
+    def __init__(self,
+                 layer: DecoderLayer,
+                 vocab_size: int,
+                 d_model: int,
+                 num_layers: int,
+                 max_len: int,
+                 dropout: float,
+                 pad_id: int):
+        super().__init__()
+
+        self.pad_id = pad_id
+
+        # Embedding layer + pos encoding
+        # self.cptn_emb = nn.Embedding(vocab_size, d_model, padding_idx=pad_id)
+        # self.pos_emb = PositionalEmbedding(d_model, max_len)
+
+        # Make copies of the decoder layer
+        self.layers = nn.ModuleList(
+            [deepcopy(layer) for _ in range(num_layers)])
+
+        self.dropout = nn.Dropout(p=dropout)
+
+    def get_attn_subsequent_mask(self, sz: int) -> Tensor:
+        """
+        Generates an upper-triangular matrix of -inf, with zeros on diag.
+        """
+        return torch.triu(torch.ones(sz, sz) * float('-inf'), diagonal=1)
+
+    def forward(self, tgt_cptn, src_img, tgt_mask, tgt_pad_mask):
+        """
+        param:
+        tgt_cptn:   Captions (Transformer target sequence)
+                    Tensor
+                    [batch_size, max_len-1]
+        src_img:    Encoded images (Transformer source sequence)
+                    Tensor
+                    [encode_size^2, batch_size, image_embed_dim]
+        outputs:
+        output:     Decoder output
+                    Tensor
+                    [max_len, batch_size, model_embed_dim]
+        attn_all:   Attension weights
+                    Tensor
+                    [layer_num, batch_size, head_num, max_len-1,
+                    encode_size^2]
+                    See comments in decoder_layers.DecoderLayer
+        """
+
+        # create masks, then pass to decoder
+        # tgt_pad_mask = (tgt_cptn == self.pad_id)
+        # tgt_mask = self.get_attn_subsequent_mask(tgt_cptn.size()[1])
+        # tgt_mask = tgt_mask.to(tgt_cptn.device)
+
+        # encode captions + pos enc
+        # (B, max_len) -> (B, max_len, d_model) -> (max_len, B, d_model)
+        # tgt_cptn = self.cptn_emb(tgt_cptn)  # type: Tensor
+        # tgt_cptn = self.dropout(self.pos_emb(tgt_cptn.permute(1, 0, 2)))
+
+        attns_all = []
+        for layer in self.layers:
+            tgt_cptn, attns = layer(tgt_cptn, src_img, tgt_mask, tgt_pad_mask)
+            attns_all.append(attns)
+        # [layer_num, batch_size, head_num, max_len, encode_size**2]
+        attns_all = torch.stack(attns_all)
+
+        return tgt_cptn, attns_all
+
+
 class VisualTransformer(nn.Module):
     def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, n_heads, expansion_factor=4):
         super(VisualTransformer, self).__init__()
@@ -159,13 +336,18 @@ class VisualTransformer(nn.Module):
         #print(timm.list_models("*vit*"))
         dim_feedforward = embed_dim*expansion_factor
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=n_heads)
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
+        decoder_layer = DecoderLayer(d_model=embed_dim, num_heads=n_heads, feedforward_dim=dim_feedforward, dropout=0.1)
+        self.decoder = Decoder(layer=decoder_layer,
+                               vocab_size=self.target_vocab_size,
+                               d_model=embed_dim,
+                               num_layers=num_layers,
+                               max_len=seq_length,
+                               dropout=0.1,
+                               pad_id=0)
 
 
         self.linear = nn.Linear(embed_dim ,self.target_vocab_size)
 
-        #self.decoder = 
 
     def decode(self, img, max_seq_len, device):
         BOS = 2
@@ -189,8 +371,8 @@ class VisualTransformer(nn.Module):
             # print(gen_seq[:, :step])
             tgt = self.word_embedding(gen_seq[:, :step]) 
             tgt = self.position_embedding(tgt)
-
-            outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=None, tgt_key_padding_mask=None)
+            outputs, _ = self.decoder(tgt_cptn=tgt.permute(1,0,2), src_img=enc_out.permute(1,0,2), 
+                                    tgt_mask=None, tgt_pad_mask=None)
             outputs = self.linear(outputs)
             outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
             # print(outputs.shape)
@@ -223,7 +405,8 @@ class VisualTransformer(nn.Module):
         # print("padding_masks", padding_masks)
         
         # (tgt_len, batch, embed_dim)
-        outputs = self.decoder(tgt=tgt.permute(1,0,2), memory=enc_out.permute(1,0,2), tgt_mask=trg_mask, tgt_key_padding_mask=padding_masks)
+        outputs, attn_all = self.decoder(tgt_cptn=tgt.permute(1,0,2), src_img=enc_out.permute(1,0,2), 
+                               tgt_mask=trg_mask, tgt_pad_mask=padding_masks)
         outputs = self.linear(outputs)
         outputs = outputs.permute(1,2,0) # torch.Size([bz, target_vocab_size, tgt_len])
         return outputs
@@ -262,21 +445,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # ======================================================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./vit_huge_patch14_224_clip_laion2b")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_zarzouram_layer_8")
     
-    parser.add_argument("--model_option",  default= "vit_huge_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1280) # 16*96
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=12)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=32)
     # ====================================================================== 
-    parser.add_argument("--batch_size", help="batch size", type=int, default=4)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=3e-5)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=8)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-4)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-6)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=30)
+    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=100)
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
 
 

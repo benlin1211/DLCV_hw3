@@ -233,15 +233,15 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
     # ======================================================================    
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_base_patch32_224_sam_num_layers_12")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_0_best.pth")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_2_best.pth")
 
-    parser.add_argument("--model_option",  default= "ckpt_base_patch32_224_sam_num_layers_12") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
+    parser.add_argument("--model_option",  default= "vit_base_patch32_224_sam") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
+    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768)
-    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=12)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
-
+    # ====================================================================== 
     args = parser.parse_args()
     print(vars(args))
 
