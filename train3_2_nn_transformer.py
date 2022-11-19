@@ -264,15 +264,15 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_base_patch32_224_sam_num_layers_12")
     parser.add_argument("--model_option",  default= "vit_base_patch32_224_sam") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 8*96
+    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96
     parser.add_argument("--num_layers", help="num_layers", type=int, default=12)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     
-    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=64)
     parser.add_argument("--learning_rate", help="learning rate", type=float, default=3e-5)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-6)
-    parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=1000)
+    parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.99)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=30)
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
