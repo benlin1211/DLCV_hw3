@@ -324,14 +324,16 @@ class VisualTransformer(nn.Module):
         
         # Freeze layers
         #print(self.encoder)
-        for i, module in enumerate(self.encoder): 
-            if i == 3:
-                for j, layer in enumerate(module):
-                    if j < num_freeze_layer:
-                        for param in layer.parameters():
-                            param.requires_grad = False
-                    else:
-                        print(j, layer)
+        # for i, module in enumerate(self.encoder): 
+        #     if i == 3:
+        #         for j, layer in enumerate(module):
+        #             if j < num_freeze_layer:
+        #                 for param in layer.parameters():
+        #                     param.requires_grad = False
+        #             else:
+        #                 print(j, layer)
+        for param in self.encoder.parameters():
+            param.requires_grad = False
 
         #print(timm.list_models("*vit*"))
         dim_feedforward = embed_dim*expansion_factor
@@ -451,16 +453,16 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=50)
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
-    # ======================================================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_laion2b_L8")
-    
-    parser.add_argument("--model_option",  default= "vit_base_patch32_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b"
+    # ================================= TRAIN =====================================                             
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_base_patch8_224_L12") 
+    # patch 越小越強
+    parser.add_argument("--model_option",  default= "vit_base_patch8_224") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=12)
-    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=10)
-    # ====================================================================== 
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
+    # ================================= TRAIN ===================================== 
 
     args = parser.parse_args()
     print(vars(args))
