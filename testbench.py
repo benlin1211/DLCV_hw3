@@ -12,3 +12,9 @@
 
 import torch
 import torch.nn as nn
+num_words = 10
+embed_dim = 3
+embed = nn.Embedding(num_words, embed_dim)
+print(embed.weight)
+embed = nn.Embedding(num_words, embed_dim, padding_idx=0)
+print(embed.weight)
