@@ -306,7 +306,7 @@ if __name__ == "__main__":
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_all_copy") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_all_copy_no_aug") 
     # patch 越小越強
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -370,7 +370,7 @@ if __name__ == "__main__":
         # transforms.Lambda(under_max),
 
         transforms.Resize((resize,resize)),
-        transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
+        #transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
