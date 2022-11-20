@@ -61,28 +61,27 @@ class Embedding(nn.Module):
 
 
 class PositionalEmbedding(nn.Module):
-    def __init__(self,max_seq_len, embed_model_dim, dropout = 0):
-        super(PositionalEmbedding, self).__init__()
-        self.embed_dim = embed_model_dim
-        self.dropout = nn.Dropout(dropout)
-        # create constant 'pe' matrix with values dependant on 
-        # pos and i        
-        pe = torch.zeros(max_seq_len,self.embed_dim)
-        for pos in range(max_seq_len):
-            for i in range(0,self.embed_dim,2):
-                pe[pos, i] = math.sin(pos / (10000 ** ((2 * i)/self.embed_dim)))
-                pe[pos, i + 1] = math.cos(pos / (10000 ** ((2 * (i + 1))/self.embed_dim)))
+    def __init__(self, max_len: int, d_model: int):
+        super().__init__()
+
+        self.d_model = d_model
+
+        # create positional encoding
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() *
+            (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
 
+        # not a parameter, but should be part of the modules state.
+        self.register_buffer("pe", pe, persistent=False)
 
-    def forward(self, x):
-        # make embeddings relatively larger
-        x = x * math.sqrt(self.embed_dim)
-        #add constant to embedding
-        seq_length = x.size(1)
-        x = x + torch.autograd.Variable(self.pe[:,:seq_length], requires_grad=False)
-        x = self.dropout(x)
+    def forward(self, x: Tensor) -> Tensor:
+        x = x * math.sqrt(self.d_model)
+        x = x + self.pe[:, :x.size(1)]
         return x
 
 
@@ -282,7 +281,7 @@ class Decoder(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, n_heads, expansion_factor=4):
+    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, n_heads, dropout, expansion_factor=4):
         super(VisualTransformer, self).__init__()
         
         """  
@@ -297,8 +296,9 @@ class VisualTransformer(nn.Module):
            n_heads: number of heads in multihead attention
         
         """
-
-        self.word_embedding = nn.Embedding(target_vocab_size, embed_dim)
+        PAD = 0
+        self.word_embedding = nn.Embedding(target_vocab_size, embed_dim, padding_idx=PAD)
+        # https://pytorch.org/docs/stable/generated/torch.nn.Embedding.html
         self.position_embedding = PositionalEmbedding(seq_length, embed_dim) #nn.Embedding
         self.target_vocab_size = target_vocab_size
 
@@ -320,8 +320,8 @@ class VisualTransformer(nn.Module):
                                d_model=embed_dim,
                                num_layers=num_layers,
                                max_len=seq_length,
-                               dropout=0.1,
-                               pad_id=0)
+                               dropout=dropout,
+                               pad_id=PAD)
 
 
         self.linear = nn.Linear(embed_dim ,self.target_vocab_size)
@@ -401,16 +401,17 @@ if __name__ == "__main__":
     parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
     parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
+    parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_large_patch14_224_clip_laion2b_L8")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_embed_2048_no_paddiqng_embed")
     parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_17_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads", type=int, default=16)
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=8) # actually 8
-    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=10)
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     # ================================ EVAL ====================================== 
     args = parser.parse_args()
     print(vars(args))
@@ -442,7 +443,7 @@ if __name__ == "__main__":
     batch_size = 1 # args.batch_size
     embed_dim = args.embed_dim
     n_heads = args.n_heads
-
+    dropout = args.dropout
 
     # Tokenizer setting
     tokenizer = Tokenizer.from_file(tokenizer_path)
@@ -472,7 +473,8 @@ if __name__ == "__main__":
                               target_vocab_size=target_vocab_size, seq_length=seq_length,
                               num_layers=num_layers,
                               num_freeze_layer=num_freeze_layer,
-                              n_heads=n_heads)
+                              n_heads=n_heads,
+                              dropout=dropout)
     show_n_param(model)
     model = model.to(device)
 

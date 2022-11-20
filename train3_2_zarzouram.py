@@ -505,18 +505,6 @@ if __name__ == "__main__":
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
     seq_length = 196 # I don't know why...
 
-    # with open("./hw3_data/p2_data/train.json", newline='') as jsonfile:
-    #     data = json.load(jsonfile)
-
-    # example_caption = data["annotations"][0]["caption"]
-    # print("example_caption", example_caption)
-    # tokenized_caption = tokenizer.encode(example_caption)
-    # tokenized_id = list(torch.tensor(tokenized_caption.ids))
-    # print("id", tokenized_id)
-    # reconstruct_caption = tokenizer.decode(tokenized_id)
-    # print("reconstruct_caption", reconstruct_caption)
-
-
     # Dataset
     train_transform = transforms.Compose([
         # transforms.Lambda(under_max),
