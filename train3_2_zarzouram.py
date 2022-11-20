@@ -298,7 +298,7 @@ class Decoder(nn.Module):
 
 
 class VisualTransformer(nn.Module):
-    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, n_heads, expansion_factor=4):
+    def __init__(self, embed_dim, encoder_model_name, target_vocab_size, seq_length ,num_layers, num_freeze_layer, n_heads, dropout, expansion_factor=4):
         super(VisualTransformer, self).__init__()
         
         """  
@@ -344,7 +344,7 @@ class VisualTransformer(nn.Module):
                                d_model=embed_dim,
                                num_layers=num_layers,
                                max_len=seq_length,
-                               dropout=0.1,
+                               dropout=dropout,
                                pad_id=0)
 
 
@@ -447,19 +447,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--batch_size", help="batch size", type=int, default=32)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-4)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-9)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=5e-5)
+    parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
-    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.75)
+    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.99)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20) #6
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
+    parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_large_patch14_224_clip_laion2b_L8") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_embed_2048") 
     # patch 越小越強
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=2048) # 16*96
     parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     # ================================= TRAIN ===================================== 
@@ -487,6 +488,7 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     embed_dim = args.embed_dim
     n_heads = args.n_heads
+    dropout = args.dropout
     # Leaning rate
     lr = args.learning_rate
     weight_decay = args.weight_decay
@@ -585,7 +587,8 @@ if __name__ == "__main__":
                               target_vocab_size=target_vocab_size, seq_length=seq_length,
                               num_layers=num_layers,
                               num_freeze_layer=num_freeze_layer,
-                              n_heads=n_heads)
+                              n_heads=n_heads,
+                              dropout=dropout)
     model = model.to(device)
     #print(model)
     show_n_param(model)
@@ -595,7 +598,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     # scheduler
     # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=gamma)
     
     # clip computer
     # clip_model, _preprocess = clip.load("ViT-B/32", device=device)
