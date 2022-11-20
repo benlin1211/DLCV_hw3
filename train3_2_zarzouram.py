@@ -185,12 +185,12 @@ class DecoderLayer(nn.Module):
                                        dec_inputs,
                                        dec_inputs,
                                        attn_mask=tgt_mask,
-                                       key_padding_mask=tgt_pad_mask)
+                                       key_padding_mask=tgt_pad_mask, average_attn_weights=False)
         output = dec_inputs + self.self_attn_dropout(output)
         output = self.self_attn_norm(output)  # type: Tensor
 
         # # self attention + residual + norm + FF
-        output2, attns = self.multihead_attn(output, enc_outputs, enc_outputs)
+        output2, attns = self.multihead_attn(output, enc_outputs, enc_outputs, average_attn_weights=False)
         output = output + self.multihead_dropout(output2)
         output = self.multihead_norm(output)
 
@@ -423,7 +423,7 @@ def loss_compute(pred, gth, smoothing):
     #loss = F.cross_entropy(pred, gth, ignore_index=PAD, label_smoothing=smoothing)# ,reduction='sum')
     # print(pred)
     # print(gth)
-    criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing)
+    criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing, reduction='mean')
     loss = criterion(pred, gth)
     # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
     return loss
@@ -432,7 +432,7 @@ def clip_gradient(optimizer):
     for group in optimizer.param_groups:
         for param in group["params"]:
             if param.grad is not None:
-                param.grad.data.clamp_(-5,5)
+                param.grad.data.clamp_(-0.1,0.1)
     return optimizer
 
 def show_n_param(model):
@@ -446,20 +446,20 @@ if __name__ == "__main__":
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--batch_size", help="batch size", type=int, default=32)
     parser.add_argument("--learning_rate", help="learning rate", type=float, default=2e-5)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=1e-9)
+    parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20) #6
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
-    parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0)
+    parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_large") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_vit_base_patch8_224_in21k") 
     # patch 越小越強
-    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
+    parser.add_argument("--model_option",  default= "vit_base_patch8_224_in21k") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     # ================================= TRAIN ===================================== 
 
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     
     # Epoch
     epochs = args.n_epochs
-    #gradient_clip = 1.0
+    gradient_clip = 0.1
     # lr scheduler
     num_warmup_steps = args.scheduler_warmup_steps
     gamma = args.gamma
@@ -652,8 +652,8 @@ if __name__ == "__main__":
             
             model.zero_grad()
             loss.backward()
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
-            optimizer = clip_gradient(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+            #optimizer = clip_gradient(optimizer)
             optimizer.step()
             lr_scheduler.step()
 
@@ -699,8 +699,8 @@ if __name__ == "__main__":
                     # print("gth:",gth_ids[0])
                     print("gth captions", captions)
                     #print("loss",loss)
-                else:
-                    break
+                # else:
+                #    break
                 val_loss += loss.item()
                 pbar_val.set_postfix(loss=loss.item())
                 loss_curve_val.append(loss.item())

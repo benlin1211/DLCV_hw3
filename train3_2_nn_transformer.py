@@ -262,12 +262,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # ======================================================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./vit_huge_patch14_224_clip_laion2b")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt3_2_freeze_24_nhead_8")
     
-    parser.add_argument("--model_option",  default= "vit_huge_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=16)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1280) # 16*96
+    parser.add_argument("--n_heads", help="n_heads. paper=12", type=int, default=8)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
     parser.add_argument("--num_layers", help="num_layers", type=int, default=16)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=32)
     # ====================================================================== 
