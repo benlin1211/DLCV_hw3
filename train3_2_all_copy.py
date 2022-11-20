@@ -306,7 +306,7 @@ if __name__ == "__main__":
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_all_copy_no_aug") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_all_copy") 
     # patch 越小越強
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -370,7 +370,7 @@ if __name__ == "__main__":
         # transforms.Lambda(under_max),
 
         transforms.Resize((resize,resize)),
-        #transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
+        transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -439,15 +439,15 @@ if __name__ == "__main__":
     start_epoch = 0
     loss_curve_train = []
     loss_curve_val = []
-    # # Load 
-    # resume  = os.path.join(ckpt_path, f"epoch_0_best.pth")
-    # checkpoint = torch.load(resume, map_location = device)
-    # print(f"Load from {resume}")
+    # Load 
+    resume  = os.path.join(ckpt_path, f"epoch_4_best.pth")
+    checkpoint = torch.load(resume, map_location = device)
+    print(f"Load from {resume}")
 
-    # model.load_state_dict(checkpoint['model_state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    # start_epoch = checkpoint['epoch'] + 1 
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    start_epoch = checkpoint['epoch'] + 1 
 
 
     for epoch in range(start_epoch, epochs):

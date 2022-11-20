@@ -290,7 +290,7 @@ if __name__ == "__main__":
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_all_copy")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_0_best.pth")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_4_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -370,11 +370,11 @@ if __name__ == "__main__":
     model = model.to(device)
 
     # Load 
-    resume  = os.path.join(ckpt_path, f"epoch_3_best.pth")
+    resume  = os.path.join(ckpt_path, resume_name)
+    print(f"load from {resume}")
     checkpoint = torch.load(resume, map_location = device)
-    print(f"Load from {resume}")
-
     model.load_state_dict(checkpoint['model_state_dict'])
+
     model.eval()
 
     max_len = 52
