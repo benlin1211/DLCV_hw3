@@ -397,6 +397,8 @@ class VisualTransformer(nn.Module):
         # print("padding_masks", padding_masks)
         
         # (tgt_len, batch, embed_dim)
+        print(tgt.permute(1,0,2).shape)
+        print(enc_out.permute(1,0,2).shape)
         outputs, attn_all = self.decoder(tgt_cptn=tgt.permute(1,0,2), src_img=enc_out.permute(1,0,2), 
                                tgt_mask=trg_mask, tgt_pad_mask=padding_masks)
         outputs = self.linear(outputs)
