@@ -90,39 +90,28 @@ class ImageCaption(Dataset):
         return image, caption
 
 
-class Embedding(nn.Module):
-    def __init__(self, vocab_size, embed_dim):
-        super(Embedding, self).__init__()
-        self.embed = nn.Embedding(vocab_size, embed_dim)
-        
-    def forward(self, x):
-        out = self.embed(x)
-        return out
-
-
 class PositionalEmbedding(nn.Module):
-    def __init__(self,max_seq_len, embed_model_dim, dropout = 0):
-        super(PositionalEmbedding, self).__init__()
-        self.embed_dim = embed_model_dim
-        self.dropout = nn.Dropout(dropout)
-        # create constant 'pe' matrix with values dependant on 
-        # pos and i        
-        pe = torch.zeros(max_seq_len,self.embed_dim)
-        for pos in range(max_seq_len):
-            for i in range(0,self.embed_dim,2):
-                pe[pos, i] = math.sin(pos / (10000 ** ((2 * i)/self.embed_dim)))
-                pe[pos, i + 1] = math.cos(pos / (10000 ** ((2 * (i + 1))/self.embed_dim)))
+    def __init__(self, max_len: int, d_model: int):
+        super().__init__()
+
+        self.d_model = d_model
+
+        # create positional encoding
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() *
+            (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
 
+        # not a parameter, but should be part of the modules state.
+        self.register_buffer("pe", pe, persistent=False)
 
-    def forward(self, x):
-        # make embeddings relatively larger
-        x = x * math.sqrt(self.embed_dim)
-        #add constant to embedding
-        seq_length = x.size(1)
-        x = x + torch.autograd.Variable(self.pe[:,:seq_length], requires_grad=False)
-        x = self.dropout(x)
+    def forward(self, x: Tensor) -> Tensor:
+        x = x * math.sqrt(self.d_model)
+        x = x + self.pe[:, :x.size(1)]
         return x
 
 
@@ -313,8 +302,9 @@ class VisualTransformer(nn.Module):
            n_heads: number of heads in multihead attention
         
         """
-
-        self.word_embedding = nn.Embedding(target_vocab_size, embed_dim)
+        PAD = 0
+        self.word_embedding = nn.Embedding(target_vocab_size, embed_dim, padding_idx=PAD)
+        # https://pytorch.org/docs/stable/generated/torch.nn.Embedding.html
         self.position_embedding = PositionalEmbedding(seq_length, embed_dim) #nn.Embedding
         self.target_vocab_size = target_vocab_size
 
@@ -345,7 +335,7 @@ class VisualTransformer(nn.Module):
                                num_layers=num_layers,
                                max_len=seq_length,
                                dropout=dropout,
-                               pad_id=0)
+                               pad_id=PAD)
 
 
         self.linear = nn.Linear(embed_dim ,self.target_vocab_size)
@@ -423,6 +413,7 @@ def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
         )
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
+
 # 版权声明：本文为CSDN博主「旺旺棒棒冰」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
 # 原文链接：https://blog.csdn.net/ltochange/article/details/116524264
 
@@ -447,7 +438,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--batch_size", help="batch size", type=int, default=32)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=5e-5)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=3e-5)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
     parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.99)
@@ -455,12 +446,12 @@ if __name__ == "__main__":
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_embed_2048") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_embed_2048_no_paddiqng_embed") 
     # patch 越小越強
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=2048) # 16*96
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
     parser.add_argument("--num_layers", help="num_layers", type=int, default=8)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     # ================================= TRAIN ===================================== 
@@ -597,8 +588,8 @@ if __name__ == "__main__":
     # optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     # scheduler
-    # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=gamma)
+    lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=gamma)
     
     # clip computer
     # clip_model, _preprocess = clip.load("ViT-B/32", device=device)
