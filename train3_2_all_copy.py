@@ -301,12 +301,12 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-4)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
-    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.9)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=20) #6
+    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.75)
+    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=30) #6
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_adam_L6") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_ALL") 
     # patch 越小越強
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -321,7 +321,7 @@ if __name__ == "__main__":
 
     # model = torch.hub.load('saahiluppal/catr', 'v3', pretrained=True)  # you can choose between v1, v2 and v3
     # print(model)
-    same_seeds(1211)
+    same_seeds(42)
     if torch.cuda.is_available():
         if torch.cuda.device_count()==2:
             device = torch.device("cuda:1")
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     tokenizer = Tokenizer.from_file(os.path.join(root_dir, "caption_tokenizer.json"))
     
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
-    seq_length = 196 # I don't know why...
+    seq_length = 64 # Max length of positional embedding
 
     # Dataset
     train_transform = transforms.Compose([
@@ -429,13 +429,14 @@ if __name__ == "__main__":
     model = model.to(device)
 
     # Loss
-    criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing, reduction='mean')
+    #criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing, reduction='mean')
+    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     # scheduler
-    lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=gamma)
-    
+    # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
+
     start_epoch = 0
     loss_curve_train = []
     loss_curve_val = []

@@ -290,7 +290,7 @@ if __name__ == "__main__":
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_adam_L6")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_4_best.pth")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_12_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -411,8 +411,8 @@ if __name__ == "__main__":
         # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
 
         result[file_name[0]] = reconstruct_caption
-        print(file_name)
-        print(reconstruct_caption)
+        # print(file_name)
+        # print(reconstruct_caption)
 
     # save as json
     json_name = des_path.split('/')[-1]
