@@ -1,5 +1,5 @@
 # Ref: https://github.com/zarzouram/image_captioning_with_transformers/tree/759476452229f9829be6576e5e6934296e4febe6/code/models/IC_encoder_decoder
-
+# greedy
 
 import timm
 from copy import deepcopy

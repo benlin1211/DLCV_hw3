@@ -3,7 +3,6 @@
 
 import timm
 from copy import deepcopy
-import matplotlib.pyplot as plt
 
 import urllib
 import os
@@ -227,7 +226,9 @@ class Transformer(nn.Module):
                                      feedforward_dim=dec_ff_dim,
                                      dropout=dropout)
         #print(timm.list_models("*vit*")) 
-        self.encoder = torch.nn.Sequential(*(list(timm.create_model(encoder_model_name, pretrained=True).children())[:-1]))
+        #self.encoder = torch.nn.Sequential(*(list(timm.create_model(encoder_model_name, pretrained=True).children())[:-1]))
+        self.encoder = timm.create_model(encoder_model_name, pretrained=True)
+        
         for param in self.encoder.parameters():
             param.requires_grad = False
         self.decoder = Decoder(layer=decoder_layer,
@@ -241,10 +242,19 @@ class Transformer(nn.Module):
         self.predictor = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, images: Tensor,
+                captions: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+
+        # encode, decode, predict
+        images_encoded = self.encoder.forward_features(images)  # type: Tensor
+        tgt_cptn, attns = self.decoder(captions, images_encoded.permute(1,0,2))
+        predictions = self.predictor(tgt_cptn).permute(1, 0, 2)  # type: Tensor
+
+        return predictions.contiguous(), attns.contiguous(), images_encoded.contiguous()
+    
+    def decode(self, images_encoded: Tensor,
                 captions: Tensor) -> Tuple[Tensor, Tensor]:
 
         # encode, decode, predict
-        images_encoded = self.encoder(images)  # type: Tensor
         tgt_cptn, attns = self.decoder(captions, images_encoded.permute(1,0,2))
         predictions = self.predictor(tgt_cptn).permute(1, 0, 2)  # type: Tensor
 
@@ -290,14 +300,17 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_adam")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_4_best.pth")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue")  
+    # ckpt_encoder
+    # ckpt_encoder_continue
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_3_best.pth")
+    # epoch_6_best
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=16)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=8) # actually 8
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=6) # actually 6
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
     # ================================ EVAL ====================================== 
     args = parser.parse_args()
@@ -313,7 +326,7 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    device = torch.device("cuda")
+    # device = torch.device("cuda")
 
     print("Using", device)
     des_path = args.des_path
@@ -347,7 +360,7 @@ if __name__ == "__main__":
     dataset_val = ImageVal(image_dir=src_path, 
                             transform=val_transform)
 
-    data_loader_val = DataLoader(dataset_val, batch_size, shuffle=False, drop_last=False, num_workers=0)
+    data_loader_val = DataLoader(dataset_val, batch_size, shuffle=True, drop_last=False, num_workers=0)
 
     # Debugger
     len_dataloader_val = len(data_loader_val)
@@ -382,39 +395,116 @@ if __name__ == "__main__":
     result = {}
     BOS=2
     EOS=3
+    PAD=0
+    
 
     for data in tqdm(data_loader_val):
-        
         # preprocessing 
+        k = 5
         image, file_name = data 
         image = image.to(device)
-        gen_seq = np.zeros((1, max_len)) # [bz, max_seq_len]
-        gen_seq[:,0] = BOS  #[BOS]
-        gen_seq = torch.tensor(gen_seq, dtype=torch.int64).to(device) 
-        id_end = 1
+        start = torch.full(size=(1, 1),
+                           fill_value=BOS,
+                           dtype=torch.long,
+                           device=device)
         with torch.no_grad():
-            for step in range(1, max_len):
+            logits, attns, imgs_enc = model(image, start)
+            logits: Tensor  # [k=1, 1, vsc]
+            attns: Tensor  # [ln, k=1, hn, S=1, is]
+            log_prob = F.log_softmax(logits, dim=2)[0, -1, :]
+            # log_prob_topk, indxs_topk = log_prob.topk(k, sorted=True)
+            indxs_topk = log_prob.argsort(descending=True)[:k]
+            log_prob_topk = log_prob[indxs_topk]
+            # log_prob_topk [1, 1, k]
+            # indices_topk [1, 1, k]
+            current_preds = torch.cat(
+                [start.expand(k, 1), indxs_topk.view(k, 1)], dim=1)
+            # current_preds: [k, S]
 
-                logits, attns = model(image, gen_seq[:, :step])
-                word_ids = torch.argmax(logits, 2)                
-                next_word_id = word_ids[:,-1]
-                print("gen_seq",gen_seq[:, :step])            
-                print("word_ids", next_word_id)
-                print("next_word_id", next_word_id)
-                print("attns", attns.shape)
+            # get last layer, mean across transformer heads
+            # attns = attns[-1].mean(dim=1).view(1, 1, h, w)  # [k=1, s=1, h, w]
+            # current_attns = attns.repeat_interleave(repeats=k, dim=0)
+            # [k, s=1, h, w]
 
-                gen_seq[:, step] = next_word_id
-                id_end = step+1
-                if next_word_id==EOS:
-                    break
-        pred_ids = list(gen_seq.squeeze().cpu())
+        # start
+        seq_preds = []
+        seq_log_probs = []
+        seq_attns = []
+        while current_preds.size(1) <= (max_len - 2) and k > 0 and current_preds.nelement():
+            with torch.no_grad():
+                imgs_expand = imgs_enc.expand(k, *imgs_enc.size()[1:])
+                # [k, is, ie]
+                logits, attns = model.decode(imgs_expand, current_preds)
+                # logits: [k, S, vsc]
+                # attns: # [ln, k, hn, S, is]
+                # get last layer, mean across transformer heads
+                # attns = attns[-1].mean(dim=1).view(k, -1, h, w)
+                # # [k, S, h, w]
+                # attns = attns[:, -1].view(k, 1, h, w)  # current word
+
+                # next word prediction
+                log_prob = F.log_softmax(logits[:, -1:, :], dim=-1).squeeze(1)
+                # log_prob: [k, vsc]
+                log_prob = log_prob + log_prob_topk.view(k, 1)
+                # top k probs in log_prob[k, vsc]
+                log_prob_topk, indxs_topk = log_prob.view(-1).topk(k,
+                                                                   sorted=True)
+                # indxs_topk are a flat indecies, convert them to 2d indecies:
+                # i.e the top k in all log_prob: get indecies: K, next_word_id
+                prev_seq_k, next_word_id = np.unravel_index(
+                    indxs_topk.cpu(), log_prob.size())
+                next_word_id = torch.as_tensor(next_word_id).to(device).view(
+                    k, 1)
+                # prev_seq_k [k], next_word_id [k]
+
+                current_preds = torch.cat(
+                    (current_preds[prev_seq_k], next_word_id), dim=1)
+                # current_attns = torch.cat(
+                #     (current_attns[prev_seq_k], attns[prev_seq_k]), dim=1)
+
+            # print(next_word_id)
+            # find predicted sequences that ends
+            seqs_end = (next_word_id == EOS).view(-1)
+            if torch.any(seqs_end):
+                seq_preds.extend(seq.tolist()
+                                 for seq in current_preds[seqs_end])
+                seq_log_probs.extend(log_prob_topk[seqs_end].tolist())
+                # get last layer, mean across transformer heads
+                # attns = attns[-1].mean(dim=1).view(k, -1, 9, 257)
+                # h, w = image_enc_hyperparms["encode_size"], image_enc_hyperparms["encode_size"]
+                # [k, S, h, w]
+                seq_attns.extend(attns[prev_seq_k][seqs_end].tolist())
+
+                k -= torch.sum(seqs_end)
+                current_preds = current_preds[~seqs_end]
+                log_prob_topk = log_prob_topk[~seqs_end]
+                # current_attns = current_attns[~seqs_end]
+
+        # Sort predicted captions according to seq_log_probs
+        specials = [PAD, BOS, EOS]
+        # print(seq_preds, seq_attns, seq_log_probs)
+        seq_preds, seq_attns, seq_log_probs = zip(*sorted(
+            zip(seq_preds, seq_attns, seq_log_probs), key=lambda tup: -tup[2]))
+
+        # print(seq_preds)
+        # print(text_refs)
+        # text_preds = [[vocab.itos[s] for s in seq if s not in specials]
+        #               for seq in seq_preds]
+        # text_refs = [[vocab.itos[r] for r in ref if r not in specials]
+        #              for ref in cptns_all.squeeze(0).permute(1, 0)]
+
+
+        # token to caption
+        # choose the first one.
+        pred_ids = seq_preds[0]
         reconstruct_caption = tokenizer.decode(pred_ids)
         # print("pred_ids",pred_ids)
         # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
 
         result[file_name[0]] = reconstruct_caption
-        print(file_name)
-        print(reconstruct_caption)
+        # print(seq_attns.shape)
+        # print(file_name)
+        # print(reconstruct_caption)
 
     # save as json
     json_name = des_path.split('/')[-1]
