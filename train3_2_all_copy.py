@@ -239,7 +239,9 @@ class Transformer(nn.Module):
                                      feedforward_dim=dec_ff_dim,
                                      dropout=dropout)
         #print(timm.list_models("*vit*")) 
-        self.encoder = torch.nn.Sequential(*(list(timm.create_model(encoder_model_name, pretrained=True).children())[:-1]))
+        #self.encoder = torch.nn.Sequential(*(list(timm.create_model(encoder_model_name, pretrained=True).children())[:-1]))
+        self.encoder = timm.create_model(encoder_model_name, pretrained=True)
+        
         for param in self.encoder.parameters():
             param.requires_grad = False
         self.decoder = Decoder(layer=decoder_layer,
@@ -256,7 +258,7 @@ class Transformer(nn.Module):
                 captions: Tensor) -> Tuple[Tensor, Tensor]:
 
         # encode, decode, predict
-        images_encoded = self.encoder(images)  # type: Tensor
+        images_encoded = self.encoder.forward_features(images)  # type: Tensor
         tgt_cptn, attns = self.decoder(captions, images_encoded.permute(1,0,2))
         predictions = self.predictor(tgt_cptn).permute(1, 0, 2)  # type: Tensor
 
@@ -298,19 +300,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--batch_size", help="batch size", type=int, default=32)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=1e-4)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=5e-5)
     parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
     parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
-    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.75)
+    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.99)
     parser.add_argument("--n_epochs", help="n_epochs", type=int, default=30) #6
     parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
     # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_ALL") 
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder") 
     # patch 越小越強
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=16) #8
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
     parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
@@ -435,7 +437,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     # scheduler
     # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=gamma)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=gamma)
 
     start_epoch = 0
     loss_curve_train = []
