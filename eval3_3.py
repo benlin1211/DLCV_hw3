@@ -256,32 +256,14 @@ def show_n_param(model):
                        for p in model.parameters() if p.requires_grad)
     print(f"Number of params: {n_parameters}")
 
+def tensor_to_PIL(tensor):
+    image = tensor.cpu().clone()
+    image = image.squeeze(0)
+    unloader = transforms.ToPILImage()
+    image = unloader(image)
+    return image
 
-def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
-
-    def lr_lambda(current_step: int):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
-        return max(
-            0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
-        )
-
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
-
-def loss_compute(criterion, pred, gth):
-    # https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/132907dd272e2cc92e3c10e6c4e783a87ff8893d/train.py#L40 
-    PAD = 0
-    #loss = F.cross_entropy(pred, gth, ignore_index=PAD, label_smoothing=smoothing)# ,reduction='sum')
-
-    v_sz = pred.size()[-1]
-    gth = gth.contiguous()
-    
-    # print(pred.view(-1, v_sz))
-    # print(gth.view(-1))
-
-    loss = criterion(pred.view(-1, v_sz), gth.view(-1))
-    # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
-    return loss
+# https://oldpan.me/archives/pytorch-tensor-image-transform
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
@@ -291,8 +273,8 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_6_best.pth")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_3_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -318,6 +300,7 @@ if __name__ == "__main__":
 
     print("Using", device)
     des_root = args.des_root
+    os.makedirs(des_root, exist_ok=True)
     src_path = args.src_path
     
     tokenizer_path = args.tokenizer_path
@@ -344,6 +327,12 @@ if __name__ == "__main__":
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
+    # visualization
+    attn_transform = transforms.Compose([
+        transforms.Resize((224,224)),
+        transforms.ToTensor(),
     ])
     dataset_val = ImageVal(image_dir=src_path, 
                             transform=val_transform)
@@ -404,10 +393,8 @@ if __name__ == "__main__":
                 # attns: [layer, 1, head, word, attn_map(16*16)+1]
                 word_ids = torch.argmax(logits, 2)                
                 next_word_id = word_ids[:,-1]
-                # print("gen_seq",gen_seq[:, :step])            
-                # print("word_ids", next_word_id)
+        
                 # print("next_word_id", next_word_id)
-
                 gen_seq[:, step] = next_word_id
                 id_end = step+1
                 # print(attns.shape)
@@ -422,10 +409,46 @@ if __name__ == "__main__":
         # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
 
         result[file_name[0]] = reconstruct_caption
-        print(file_name)
-        print(reconstruct_caption)
-        print(len(attn_list))
-        print(attn_list[0].shape)
-        # plot attn with corresponding words.
+        # print(file_name)
+        # print(reconstruct_caption)
+        # print(len(attn_list))
+        # print(len(pred_ids))
+        # print(attn_list[0].shape)
 
+        ori_img = image[0].permute(1,2,0).clone().cpu()
+        fig = plt.figure(figsize=(16, 8))
+        fig.suptitle(f"Attention Visualization of {file_name[0]}.jpg", fontsize=24)
 
+        for i in range(0, len(pred_ids), 1):
+            token = pred_ids[i]
+            if token == 2:
+                caption = "[BOS]"
+            elif token == 3:
+                caption = "[EOS]"
+            else:
+                caption = tokenizer.decode(list([token]))
+
+            
+            if i==0:
+                # show origin
+                ax = fig.add_subplot(3, 5, i+1)
+                ax.imshow(ori_img)
+                ax.axes.get_xaxis().set_visible(False)
+                ax.axes.get_yaxis().set_visible(False)
+                ax.set_title(caption)
+                pass
+            else:
+                ax = fig.add_subplot(3, 5, i+1)
+                attn = attn_list[i-1]
+                attn_map = attn_transform(tensor_to_PIL(attn)).permute(1,2,0)
+                # print(caption, attn_map.shape)
+                ax.imshow(attn_map, cmap='jet')
+                ax.imshow(ori_img, alpha = 0.2)
+                ax.axes.get_xaxis().set_visible(False)
+                ax.axes.get_yaxis().set_visible(False)
+                ax.set_title(caption)
+
+            if token == 3: #[EOS]
+                break
+        save_path = os.path.join(des_root, f"{file_name[0]}_vis.png")
+        plt.savefig(save_path)
