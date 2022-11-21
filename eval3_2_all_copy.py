@@ -226,7 +226,9 @@ class Transformer(nn.Module):
                                      feedforward_dim=dec_ff_dim,
                                      dropout=dropout)
         #print(timm.list_models("*vit*")) 
-        self.encoder = torch.nn.Sequential(*(list(timm.create_model(encoder_model_name, pretrained=True).children())[:-1]))
+        #self.encoder = torch.nn.Sequential(*(list(timm.create_model(encoder_model_name, pretrained=True).children())[:-1]))
+        self.encoder = timm.create_model(encoder_model_name, pretrained=True)
+        
         for param in self.encoder.parameters():
             param.requires_grad = False
         self.decoder = Decoder(layer=decoder_layer,
@@ -243,7 +245,7 @@ class Transformer(nn.Module):
                 captions: Tensor) -> Tuple[Tensor, Tensor]:
 
         # encode, decode, predict
-        images_encoded = self.encoder(images)  # type: Tensor
+        images_encoded = self.encoder.forward_features(images)  # type: Tensor
         tgt_cptn, attns = self.decoder(captions, images_encoded.permute(1,0,2))
         predictions = self.predictor(tgt_cptn).permute(1, 0, 2)  # type: Tensor
 
@@ -289,12 +291,12 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_ALL")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder")
     parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_1_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads", type=int, default=8)
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=16)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
     parser.add_argument("--num_layers", help="num_layers", type=int, default=6) # actually 6
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)

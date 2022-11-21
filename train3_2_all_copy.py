@@ -367,21 +367,29 @@ if __name__ == "__main__":
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
     seq_length = 64 # Max length of positional embedding
 
+    class RandomRotation:
+        def __init__(self, angles=[0, 90, 180, 270]):
+            self.angles = angles
+
+        def __call__(self, x):
+            angle = random.choice(self.angles)
+            return TF.rotate(x, angle, expand=True)
+
     # Dataset
     train_transform = transforms.Compose([
         # transforms.Lambda(under_max),
-
+        RandomRotation(),
         transforms.Resize((resize,resize)),
         transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
     ])
 
     val_transform = transforms.Compose([
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
     data_dir = os.path.join(root_dir,"p2_data") # "./hw3_data/p2_data"
     # TODO: set the following into Dataset.
