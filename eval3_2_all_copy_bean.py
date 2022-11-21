@@ -51,43 +51,30 @@ def same_seeds(seed):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-class ImageCaption(Dataset):
-    def __init__(self, image_dir, annotation_json_dir, max_length, transform, tokenizer, mode='train'):
-        super().__init__()
-        self.image_dir = image_dir # read image according to caption list
-        self.transform = transform
-        with open(os.path.join(annotation_json_dir), newline='') as jsonfile:
-            data = json.load(jsonfile)
-        self.annotations = data["annotations"]
-        self.images = data["images"]
 
-        self.max_length = max_length + 1
-        self.tokenizer = tokenizer
-        self.mode = mode
-        self.pad_token_id = 0
+class ImageVal(Dataset):
+    def __init__(self, image_dir, transform):
+        super().__init__()
+        self.file_names = glob.glob(os.path.join(image_dir, "*.jpg"))  
+        self.transform = transform
+
         # "[PAD]": 0,
         # "[UNK]": 1,
         # "[BOS]": 2,
         # "[EOS]": 3,
 
     def __len__(self):
-        return len(self.annotations)
+        return len(self.file_names)
 
     def __getitem__(self, idx):
-        # read image according to caption list
-        # Get image_id
-        image_id = self.annotations[idx]["image_id"]
-
-        # Get caption
-        caption = self.annotations[idx]["caption"]
-    
-        # Get image with corresponding caption id
-        file_name = [item["file_name"] for item in self.images if item["id"] == image_id] 
-        assert len(file_name) == 1
-        image = Image.open(os.path.join(self.image_dir, file_name[0])).convert('RGB')
+        # read image according to data["images"] list
+        file_name = self.file_names[idx]
+        #print(file_name)
+        image = Image.open(file_name).convert('RGB')
         if self.transform:
             image = self.transform(image)
-        return image, caption
+
+        return image, file_name.split("/")[-1].split(".")[0]
 
 
 class PositionalEncoding(nn.Module):
@@ -255,10 +242,19 @@ class Transformer(nn.Module):
         self.predictor = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, images: Tensor,
-                captions: Tensor) -> Tuple[Tensor, Tensor]:
+                captions: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
 
         # encode, decode, predict
         images_encoded = self.encoder.forward_features(images)  # type: Tensor
+        tgt_cptn, attns = self.decoder(captions, images_encoded.permute(1,0,2))
+        predictions = self.predictor(tgt_cptn).permute(1, 0, 2)  # type: Tensor
+
+        return predictions.contiguous(), attns.contiguous(), images_encoded.contiguous()
+    
+    def decode(self, images_encoded: Tensor,
+                captions: Tensor) -> Tuple[Tensor, Tensor]:
+
+        # encode, decode, predict
         tgt_cptn, attns = self.decoder(captions, images_encoded.permute(1,0,2))
         predictions = self.predictor(tgt_cptn).permute(1, 0, 2)  # type: Tensor
 
@@ -299,31 +295,30 @@ def loss_compute(criterion, pred, gth):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--batch_size", help="batch size", type=int, default=32)
-    parser.add_argument("--learning_rate", help="learning rate", type=float, default=3e-5)
-    parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
-    parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
-    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.99)
-    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=5) #6
-    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
-    parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
-    # ================================= TRAIN =====================================                             
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue") 
-    # patch 越小越強
-    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
-    parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads", type=int, default=16) #8
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
-    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
-    # ================================= TRAIN ===================================== 
+    parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
+    parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
+    parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
+    parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
+    # ================================ EVAL ======================================    
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue")  
+    # ckpt_encoder
+    # ckpt_encoder_continue
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_3_best.pth")
+    # epoch_6_best
 
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
+    parser.add_argument("--resize", help="resize", type=int, default=224)
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=16)
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=6) # actually 6
+    parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
+    # ================================ EVAL ====================================== 
     args = parser.parse_args()
     print(vars(args))
 
     # model = torch.hub.load('saahiluppal/catr', 'v3', pretrained=True)  # you can choose between v1, v2 and v3
     # print(model)
-    same_seeds(42)
+    same_seeds(1211)
     if torch.cuda.is_available():
         if torch.cuda.device_count()==2:
             device = torch.device("cuda:1")
@@ -331,98 +326,46 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    device = torch.device("cuda")
+    # device = torch.device("cuda")
+
     print("Using", device)
+    des_path = args.des_path
+    src_path = args.src_path
+    
+    tokenizer_path = args.tokenizer_path
+    ckpt_path = args.ckpt_path
+    resume_name = args.resume_name 
 
     encoder_model_name= args.model_option 
     num_layers = args.num_layers 
     num_freeze_layer = args.num_freeze_layer
     resize = args.resize
-    batch_size = args.batch_size
+    batch_size = 1 # args.batch_size
     embed_dim = args.embed_dim
     n_heads = args.n_heads
     dropout = args.dropout
-    # Leaning rate
-    lr = args.learning_rate
-    weight_decay = args.weight_decay
-
-    # loss smootthing
-    smoothing = args.smoothing
-    
-    # Epoch
-    epochs = args.n_epochs
-    gradient_clip = 0.1
-    # lr scheduler
-    num_warmup_steps = args.scheduler_warmup_steps
-    gamma = args.gamma
-
-    root_dir = "./hw3_data"
-    ckpt_path= args.ckpt_path
-    os.makedirs(ckpt_path, exist_ok=True)
-
 
     # Tokenizer setting
-    tokenizer = Tokenizer.from_file(os.path.join(root_dir, "caption_tokenizer.json"))
-    
+    tokenizer = Tokenizer.from_file(tokenizer_path)
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
-    seq_length = 64 # Max length of positional embedding
+    seq_length = 196 # I don't know why...
 
-    # class RandomRotation:
-    #     def __init__(self, angles=[0, 90, 180, 270]):
-    #         self.angles = angles
-
-    #     def __call__(self, x):
-    #         angle = random.choice(self.angles)
-    #         return TF.rotate(x, angle, expand=True)
 
     # Dataset
-    train_transform = transforms.Compose([
-        # transforms.Lambda(under_max),
-        # RandomRotation(),
-        transforms.Resize((resize,resize)),
-        transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-
     val_transform = transforms.Compose([
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
-        # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
-    data_dir = os.path.join(root_dir,"p2_data") # "./hw3_data/p2_data"
-    # TODO: set the following into Dataset.
-    image_dir_train = os.path.join(data_dir,"images/train") # "./hw3_data/p2_data/images/train"
-    annotation_dir_train = os.path.join(data_dir,"train.json") # "./hw3_data/p2_data/train.json"
-    image_dir_val = os.path.join(data_dir,"images/val")     # "./hw3_data/p2_data/images/val"
-    annotation_dir_val = os.path.join(data_dir,"val.json")     # "./hw3_data/p2_data/val.json"
+    dataset_val = ImageVal(image_dir=src_path, 
+                            transform=val_transform)
 
-    max_pos_emb = 128
-    dataset_train = ImageCaption(image_dir=image_dir_train, 
-                                annotation_json_dir=annotation_dir_train, 
-                                max_length=max_pos_emb, 
-                                transform=train_transform, 
-                                tokenizer=tokenizer,
-                                mode="train")
-    dataset_val = ImageCaption(image_dir=image_dir_val, 
-                                annotation_json_dir=annotation_dir_val, 
-                                max_length=max_pos_emb, 
-                                transform=val_transform,
-                                tokenizer=tokenizer,
-                                mode="validate")
-
-
-    data_loader_train = DataLoader(dataset_train, batch_size, shuffle=True, num_workers=0)
-    data_loader_val = DataLoader(dataset_val, batch_size, shuffle=False, drop_last=False, num_workers=0)
+    data_loader_val = DataLoader(dataset_val, batch_size, shuffle=True, drop_last=False, num_workers=0)
 
     # Debugger
-    len_dataloader_train = len(data_loader_train)
     len_dataloader_val = len(data_loader_val)
-
-    print("train:", len_dataloader_train)
+    #data_iter_val = iter(data_loader_val)
+    
     print("val:", len_dataloader_val)
 
     # model
@@ -440,132 +383,136 @@ if __name__ == "__main__":
     show_n_param(model)
     model = model.to(device)
 
-    # Loss
-    #criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing, reduction='mean')
-    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
-    # optimizer
-    optimizer_encoder = torch.optim.Adam(model.encoder.parameters(), lr=lr/10, weight_decay=weight_decay)
-    optimizer_decoder = torch.optim.Adam(model.decoder.parameters(), lr=lr, weight_decay=weight_decay)
-    optimizer_predictor = torch.optim.Adam(model.predictor.parameters(), lr=lr, weight_decay=weight_decay)
+    # Load 
+    resume  = os.path.join(ckpt_path, resume_name)
+    print(f"load from {resume}")
+    checkpoint = torch.load(resume, map_location = device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+
+    model.eval()
+
+    max_len = 52
+    result = {}
+    BOS=2
+    EOS=3
+    PAD=0
     
 
-    # scheduler
-    # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
-    lr_scheduler_encoder = torch.optim.lr_scheduler.StepLR(optimizer_encoder, step_size=20, gamma=gamma)
-    lr_scheduler_decoder = torch.optim.lr_scheduler.StepLR(optimizer_decoder, step_size=20, gamma=gamma)
-    lr_scheduler_predictor = torch.optim.lr_scheduler.StepLR(optimizer_predictor, step_size=20, gamma=gamma)
-
-    start_epoch = 0
-    loss_curve_train = []
-    loss_curve_val = []
-    # Load ckpt from train3-2_all_copy.py
-    resume  = os.path.join("./ckpt_encoder", f"epoch_6_best.pth")
-    checkpoint = torch.load(resume, map_location = device)
-    print(f"Load from {resume}")
-
-    model.load_state_dict(checkpoint['model_state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-    # start_epoch = checkpoint['epoch'] + 1 
-
-
-    for epoch in range(start_epoch, epochs):
-        # ========================= Train ==========================
-        model.train()
-        print("Train")
-        pbar = tqdm(data_loader_train)
-        pbar.set_description(f"Epoch {epoch}")
-        for data in pbar:
-            #data = data_iter_train.next()
-            image, captions = data    
-            image = image.to(device)
-            # print(image.shape)
-            # print(captions)
-
-            # preprocessing
-            tokenized_captions = tokenizer.encode_batch(captions)
-            tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-            tokenized_ids = tokenized_ids.to(device)
-            # Shift
-            # gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
-            # gth_ids[:,:-1] = tokenized_ids[:,1:]
-
-            
-            logits, attns  = model(image, tokenized_ids[:, :-1])
-
-            # print("logits", logits.shape)
-            # print("logits", logits)
-            # print("in", tokenized_ids)
-            # print("gth",gth_ids)
-
-            # print("tokenized_ids",  tokenized_ids[:, 1:].shape)
-            # print("tokenized_ids[]",  tokenized_ids.shape)
-            # print("logits", logits.shape)
-            loss = loss_compute(criterion, logits, tokenized_ids[:, 1:])
-            
-            model.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
-            #optimizer = clip_gradient(optimizer)
-            optimizer_encoder.step()
-            optimizer_decoder.step()
-            optimizer_predictor.step()
-            lr_scheduler_encoder.step()
-            lr_scheduler_decoder.step()
-            lr_scheduler_predictor.step()
-            
-            # Record
-            pbar.set_postfix(loss=loss.item(), lr_decoder = optimizer_decoder.param_groups[0]['lr'], lr_encoder = optimizer_encoder.param_groups[0]['lr'])
-            loss_curve_train.append(loss.item())
-
-        # ========================= Eval: how to do ? ==========================
-        model.eval()
-        print("Eval")
-        pbar_val = tqdm(data_loader_val)
-        pbar_val.set_description(f"Epoch {epoch}")
-        val_loss = 0
+    for data in tqdm(data_loader_val):
+        # preprocessing 
+        k = 1
+        image, file_name = data 
+        image = image.to(device)
+        start = torch.full(size=(1, 1),
+                           fill_value=BOS,
+                           dtype=torch.long,
+                           device=device)
         with torch.no_grad():
-            for data in pbar_val:
-                image, captions = data 
-                image = image.to(device)
-                # preprocessing 
-                tokenized_captions = tokenizer.encode_batch(captions)
-                tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
-                tokenized_ids = tokenized_ids.to(device)
-                
-                logits, attn = model(image,  tokenized_ids[:, :-1]) # trg_mask, padding_masks)
-                loss = loss_compute(criterion, logits, tokenized_ids[:, 1:])
+            logits, attns, imgs_enc = model(image, start)
+            logits: Tensor  # [k=1, 1, vsc]
+            attns: Tensor  # [ln, k=1, hn, S=1, is]
+            log_prob = F.log_softmax(logits, dim=2)[0, -1, :]
+            # log_prob_topk, indxs_topk = log_prob.topk(k, sorted=True)
+            indxs_topk = log_prob.argsort(descending=True)[:k]
+            log_prob_topk = log_prob[indxs_topk]
+            # log_prob_topk [1, 1, k]
+            # indices_topk [1, 1, k]
+            current_preds = torch.cat(
+                [start.expand(k, 1), indxs_topk.view(k, 1)], dim=1)
+            # current_preds: [k, S]
 
-                val_loss += loss.item()
-                pbar_val.set_postfix(loss=loss.item())
-                loss_curve_val.append(loss.item())
-                
+            # get last layer, mean across transformer heads
+            # attns = attns[-1].mean(dim=1).view(1, 1, h, w)  # [k=1, s=1, h, w]
+            # current_attns = attns.repeat_interleave(repeats=k, dim=0)
+            # [k, s=1, h, w]
 
-        if True: #best_clip_score <= clip_score:
-            #best_clip_score = clip_score
-            save_as = os.path.join(ckpt_path, f"epoch_{epoch}_best.pth")
-            print(f"Saving emodel at {save_as}")
-            torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_encoder_state_dict': optimizer_encoder.state_dict(),
-                    'optimizer_decoder_state_dict': optimizer_decoder.state_dict(),
-                    'optimizer_predictor_state_dict': optimizer_predictor.state_dict(),
-                    'scheduler_encoder_state_dict': lr_scheduler_encoder.state_dict(),
-                    'scheduler_decoder_state_dict': lr_scheduler_decoder.state_dict(),
-                    'scheduler_predictor_state_dict': lr_scheduler_predictor.state_dict(),
-                    }, save_as)
-        
+        # start
+        seq_preds = []
+        seq_log_probs = []
+        seq_attns = []
+        while current_preds.size(1) <= (max_len - 2) and k > 0 and current_preds.nelement():
+            with torch.no_grad():
+                imgs_expand = imgs_enc.expand(k, *imgs_enc.size()[1:])
+                # [k, is, ie]
+                logits, attns = model.decode(imgs_expand, current_preds)
+                # logits: [k, S, vsc]
+                # attns: # [ln, k, hn, S, is]
+                # get last layer, mean across transformer heads
+                # attns = attns[-1].mean(dim=1).view(k, -1, h, w)
+                # # [k, S, h, w]
+                # attns = attns[:, -1].view(k, 1, h, w)  # current word
 
-    print("OK")
+                # next word prediction
+                log_prob = F.log_softmax(logits[:, -1:, :], dim=-1).squeeze(1)
+                # log_prob: [k, vsc]
+                log_prob = log_prob + log_prob_topk.view(k, 1)
+                # top k probs in log_prob[k, vsc]
+                log_prob_topk, indxs_topk = log_prob.view(-1).topk(k,
+                                                                   sorted=True)
+                # indxs_topk are a flat indecies, convert them to 2d indecies:
+                # i.e the top k in all log_prob: get indecies: K, next_word_id
+                prev_seq_k, next_word_id = np.unravel_index(
+                    indxs_topk.cpu(), log_prob.size())
+                next_word_id = torch.as_tensor(next_word_id).to(device).view(
+                    k, 1)
+                # prev_seq_k [k], next_word_id [k]
 
-    df = pd.DataFrame() # apply pd.DataFrame format 
-    df["loss_train"] = loss_curve_train
-    csv_name = os.path.join(ckpt_path, f"loss_train.csv")
-    df.to_csv(csv_name, index = False)
+                current_preds = torch.cat(
+                    (current_preds[prev_seq_k], next_word_id), dim=1)
+                # current_attns = torch.cat(
+                #     (current_attns[prev_seq_k], attns[prev_seq_k]), dim=1)
+
+            # print(next_word_id)
+            # find predicted sequences that ends
+            seqs_end = (next_word_id == EOS).view(-1)
+            if torch.any(seqs_end):
+                seq_preds.extend(seq.tolist()
+                                 for seq in current_preds[seqs_end])
+                seq_log_probs.extend(log_prob_topk[seqs_end].tolist())
+                # get last layer, mean across transformer heads
+                # attns = attns[-1].mean(dim=1).view(k, -1, 9, 257)
+                # h, w = image_enc_hyperparms["encode_size"], image_enc_hyperparms["encode_size"]
+                # [k, S, h, w]
+                seq_attns.extend(attns[prev_seq_k][seqs_end].tolist())
+
+                k -= torch.sum(seqs_end)
+                current_preds = current_preds[~seqs_end]
+                log_prob_topk = log_prob_topk[~seqs_end]
+                # current_attns = current_attns[~seqs_end]
+
+        # Sort predicted captions according to seq_log_probs
+        specials = [PAD, BOS, EOS]
+        # print(seq_preds, seq_attns, seq_log_probs)
+        seq_preds, seq_attns, seq_log_probs = zip(*sorted(
+            zip(seq_preds, seq_attns, seq_log_probs), key=lambda tup: -tup[2]))
+
+        # print(seq_preds)
+        # print(text_refs)
+        # text_preds = [[vocab.itos[s] for s in seq if s not in specials]
+        #               for seq in seq_preds]
+        # text_refs = [[vocab.itos[r] for r in ref if r not in specials]
+        #              for ref in cptns_all.squeeze(0).permute(1, 0)]
 
 
-    df = pd.DataFrame() # apply pd.DataFrame format 
-    df["loss_val"] = loss_curve_val
-    csv_name = os.path.join(ckpt_path, f"loss_val.csv")
-    df.to_csv(csv_name, index = False)
+        # token to caption
+        # choose the first one.
+        pred_ids = seq_preds[0]
+        reconstruct_caption = tokenizer.decode(pred_ids)
+        # print("pred_ids",pred_ids)
+        # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
+
+        result[file_name[0]] = reconstruct_caption
+        # print(file_name)
+        # print(reconstruct_caption)
+
+    # save as json
+    json_name = des_path.split('/')[-1]
+    #print(json_name)
+    dest_folder = des_path.replace(json_name,'') 
+    #print(dest_folder)
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)
+
+    with open(des_path, "w") as f:
+        json.dump(result, f)
+    print(f"Done. json file is saved at {des_path}")
