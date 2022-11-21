@@ -10,5 +10,5 @@ echo "P2 prompt 3"
 python eval3_1.py hw3_data/p1_data/val ./hw3_data/p1_data/id2label.json "./output_p1/pred3.csv" --template_prompt="No {object}, no score. "
 python acc3_1.py --csv_path="./output_p1/pred3.csv"
 echo "P3"
-python eval3_1-3.py hw3_data/p1_data/val ./hw3_data/p1_data/id2label.json "./output_p1/pred3.csv"
+python eval3_1-3.py hw3_data/p1_data/val ./hw3_data/p1_data/id2label.json "./output_p1/"
 # bash report3_1.sh
