@@ -51,30 +51,43 @@ def same_seeds(seed):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-
-class ImageVal(Dataset):
-    def __init__(self, image_dir, transform):
+class ImageCaption(Dataset):
+    def __init__(self, image_dir, annotation_json_dir, max_length, transform, tokenizer, mode='train'):
         super().__init__()
-        self.file_names = glob.glob(os.path.join(image_dir, "*.jpg"))  
+        self.image_dir = image_dir # read image according to caption list
         self.transform = transform
+        with open(os.path.join(annotation_json_dir), newline='') as jsonfile:
+            data = json.load(jsonfile)
+        self.annotations = data["annotations"]
+        self.images = data["images"]
 
+        self.max_length = max_length + 1
+        self.tokenizer = tokenizer
+        self.mode = mode
+        self.pad_token_id = 0
         # "[PAD]": 0,
         # "[UNK]": 1,
         # "[BOS]": 2,
         # "[EOS]": 3,
 
     def __len__(self):
-        return len(self.file_names)
+        return len(self.annotations)
 
     def __getitem__(self, idx):
-        # read image according to data["images"] list
-        file_name = self.file_names[idx]
-        #print(file_name)
-        image = Image.open(file_name).convert('RGB')
+        # read image according to caption list
+        # Get image_id
+        image_id = self.annotations[idx]["image_id"]
+
+        # Get caption
+        caption = self.annotations[idx]["caption"]
+    
+        # Get image with corresponding caption id
+        file_name = [item["file_name"] for item in self.images if item["id"] == image_id] 
+        assert len(file_name) == 1
+        image = Image.open(os.path.join(self.image_dir, file_name[0])).convert('RGB')
         if self.transform:
             image = self.transform(image)
-
-        return image, file_name.split("/")[-1].split(".")[0]
+        return image, caption
 
 
 class PositionalEncoding(nn.Module):
@@ -286,27 +299,31 @@ def loss_compute(criterion, pred, gth):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
-    parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
-    parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
-    parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
-    # ================================ EVAL ======================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_6_best.pth")
-
-    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
+    parser.add_argument("--batch_size", help="batch size", type=int, default=32)
+    parser.add_argument("--learning_rate", help="learning rate", type=float, default=3e-5)
+    parser.add_argument("--weight_decay", help="weight decay", type=float, default=0)
+    parser.add_argument("--scheduler_warmup_steps", help="scheduler learning rate warmup step ", type=int, default=500)
+    parser.add_argument("--gamma", help="learning rate decay factor.",type=float, default=0.99)
+    parser.add_argument("--n_epochs", help="n_epochs", type=int, default=5) #6
+    parser.add_argument("--smoothing", help="label smoothing factor", type=float, default=0.0)
+    parser.add_argument("--dropout", help="dropout in encoder", type=int, default=0.1)
+    # ================================= TRAIN =====================================                             
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue") 
+    # patch 越小越強
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
-    parser.add_argument("--n_heads", help="n_heads", type=int, default=16)
-    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)
-    parser.add_argument("--num_layers", help="num_layers", type=int, default=6) # actually 6
+    parser.add_argument("--n_heads", help="n_heads", type=int, default=16) #8
+    parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024) # 16*96
+    parser.add_argument("--num_layers", help="num_layers", type=int, default=6)
     parser.add_argument("--num_freeze_layer", help="num_freeze_layer in encoder", type=int, default=12)
-    # ================================ EVAL ====================================== 
+    # ================================= TRAIN ===================================== 
+
     args = parser.parse_args()
     print(vars(args))
 
     # model = torch.hub.load('saahiluppal/catr', 'v3', pretrained=True)  # you can choose between v1, v2 and v3
     # print(model)
-    same_seeds(1211)
+    same_seeds(42)
     if torch.cuda.is_available():
         if torch.cuda.device_count()==2:
             device = torch.device("cuda:1")
@@ -314,46 +331,98 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    # device = torch.device("cuda")
 
     print("Using", device)
-    des_path = args.des_path
-    src_path = args.src_path
-    
-    tokenizer_path = args.tokenizer_path
-    ckpt_path = args.ckpt_path
-    resume_name = args.resume_name 
 
     encoder_model_name= args.model_option 
     num_layers = args.num_layers 
     num_freeze_layer = args.num_freeze_layer
     resize = args.resize
-    batch_size = 1 # args.batch_size
+    batch_size = args.batch_size
     embed_dim = args.embed_dim
     n_heads = args.n_heads
     dropout = args.dropout
+    # Leaning rate
+    lr = args.learning_rate
+    weight_decay = args.weight_decay
+
+    # loss smootthing
+    smoothing = args.smoothing
+    
+    # Epoch
+    epochs = args.n_epochs
+    gradient_clip = 0.1
+    # lr scheduler
+    num_warmup_steps = args.scheduler_warmup_steps
+    gamma = args.gamma
+
+    root_dir = "./hw3_data"
+    ckpt_path= args.ckpt_path
+    os.makedirs(ckpt_path, exist_ok=True)
+
 
     # Tokenizer setting
-    tokenizer = Tokenizer.from_file(tokenizer_path)
+    tokenizer = Tokenizer.from_file(os.path.join(root_dir, "caption_tokenizer.json"))
+    
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
-    seq_length = 196 # I don't know why...
+    seq_length = 64 # Max length of positional embedding
 
+    # class RandomRotation:
+    #     def __init__(self, angles=[0, 90, 180, 270]):
+    #         self.angles = angles
+
+    #     def __call__(self, x):
+    #         angle = random.choice(self.angles)
+    #         return TF.rotate(x, angle, expand=True)
 
     # Dataset
+    train_transform = transforms.Compose([
+        # transforms.Lambda(under_max),
+        # RandomRotation(),
+        transforms.Resize((resize,resize)),
+        transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
     val_transform = transforms.Compose([
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
+        # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
-    dataset_val = ImageVal(image_dir=src_path, 
-                            transform=val_transform)
+    data_dir = os.path.join(root_dir,"p2_data") # "./hw3_data/p2_data"
+    # TODO: set the following into Dataset.
+    image_dir_train = os.path.join(data_dir,"images/train") # "./hw3_data/p2_data/images/train"
+    annotation_dir_train = os.path.join(data_dir,"train.json") # "./hw3_data/p2_data/train.json"
+    image_dir_val = os.path.join(data_dir,"images/val")     # "./hw3_data/p2_data/images/val"
+    annotation_dir_val = os.path.join(data_dir,"val.json")     # "./hw3_data/p2_data/val.json"
 
+    max_pos_emb = 128
+    dataset_train = ImageCaption(image_dir=image_dir_train, 
+                                annotation_json_dir=annotation_dir_train, 
+                                max_length=max_pos_emb, 
+                                transform=train_transform, 
+                                tokenizer=tokenizer,
+                                mode="train")
+    dataset_val = ImageCaption(image_dir=image_dir_val, 
+                                annotation_json_dir=annotation_dir_val, 
+                                max_length=max_pos_emb, 
+                                transform=val_transform,
+                                tokenizer=tokenizer,
+                                mode="validate")
+
+
+    data_loader_train = DataLoader(dataset_train, batch_size, shuffle=True, num_workers=0)
     data_loader_val = DataLoader(dataset_val, batch_size, shuffle=False, drop_last=False, num_workers=0)
 
     # Debugger
+    len_dataloader_train = len(data_loader_train)
     len_dataloader_val = len(data_loader_val)
-    #data_iter_val = iter(data_loader_val)
-    
+
+    print("train:", len_dataloader_train)
     print("val:", len_dataloader_val)
 
     # model
@@ -371,59 +440,132 @@ if __name__ == "__main__":
     show_n_param(model)
     model = model.to(device)
 
+    # Loss
+    #criterion = nn.CrossEntropyLoss(ignore_index=0, label_smoothing=smoothing, reduction='mean')
+    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
+    # optimizer
+    optimizer_encoder = torch.optim.Adam(model.encoder.parameters(), lr=lr/10, weight_decay=weight_decay)
+    optimizer_decoder = torch.optim.Adam(model.decoder.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer_predictor = torch.optim.Adam(model.predictor.parameters(), lr=lr, weight_decay=weight_decay)
+    
+
+    # scheduler
+    # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
+    lr_scheduler_encoder = torch.optim.lr_scheduler.StepLR(optimizer_encoder, step_size=20, gamma=gamma)
+    lr_scheduler_decoder = torch.optim.lr_scheduler.StepLR(optimizer_decoder, step_size=20, gamma=gamma)
+    lr_scheduler_predictor = torch.optim.lr_scheduler.StepLR(optimizer_predictor, step_size=20, gamma=gamma)
+
+    start_epoch = 0
+    loss_curve_train = []
+    loss_curve_val = []
     # Load 
-    resume  = os.path.join(ckpt_path, resume_name)
-    print(f"load from {resume}")
+    resume  = os.path.join("./ckpt_encoder", f"epoch_6_best.pth")
     checkpoint = torch.load(resume, map_location = device)
+    print(f"Load from {resume}")
+
     model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    # start_epoch = checkpoint['epoch'] + 1 
 
-    model.eval()
 
-    max_len = 52
-    result = {}
-    BOS=2
-    EOS=3
+    for epoch in range(start_epoch, epochs):
+        # ========================= Train ==========================
+        model.train()
+        print("Train")
+        pbar = tqdm(data_loader_train)
+        pbar.set_description(f"Epoch {epoch}")
+        for data in pbar:
+            #data = data_iter_train.next()
+            image, captions = data    
+            image = image.to(device)
+            # print(image.shape)
+            # print(captions)
 
-    for data in tqdm(data_loader_val):
-        
-        # preprocessing 
-        image, file_name = data 
-        image = image.to(device)
-        gen_seq = np.zeros((1, max_len)) # [bz, max_seq_len]
-        gen_seq[:,0] = BOS  #[BOS]
-        gen_seq = torch.tensor(gen_seq, dtype=torch.int64).to(device) 
-        id_end = 1
+            # preprocessing
+            tokenized_captions = tokenizer.encode_batch(captions)
+            tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
+            tokenized_ids = tokenized_ids.to(device)
+            # Shift
+            # gth_ids = torch.zeros(tokenized_ids.shape, dtype=torch.int64).to(device)
+            # gth_ids[:,:-1] = tokenized_ids[:,1:]
+
+            
+            logits, attns  = model(image, tokenized_ids[:, :-1])
+
+            # print("logits", logits.shape)
+            # print("logits", logits)
+            # print("in", tokenized_ids)
+            # print("gth",gth_ids)
+
+            # print("tokenized_ids",  tokenized_ids[:, 1:].shape)
+            # print("tokenized_ids[]",  tokenized_ids.shape)
+            # print("logits", logits.shape)
+            loss = loss_compute(criterion, logits, tokenized_ids[:, 1:])
+            
+            model.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+            #optimizer = clip_gradient(optimizer)
+            optimizer_encoder.step()
+            optimizer_decoder.step()
+            optimizer_predictor.step()
+            lr_scheduler_encoder.step()
+            lr_scheduler_decoder.step()
+            lr_scheduler_predictor.step()
+            
+            # Record
+            pbar.set_postfix(loss=loss.item(), lr = lr_scheduler_decoder.param_groups[0]['lr'])
+            loss_curve_train.append(loss.item())
+
+        # ========================= Eval: how to do ? ==========================
+        model.eval()
+        print("Eval")
+        pbar_val = tqdm(data_loader_val)
+        pbar_val.set_description(f"Epoch {epoch}")
+        val_loss = 0
         with torch.no_grad():
-            for step in range(1, max_len):
+            for data in pbar_val:
+                image, captions = data 
+                image = image.to(device)
+                # preprocessing 
+                tokenized_captions = tokenizer.encode_batch(captions)
+                tokenized_ids = torch.tensor([c.ids for c in tokenized_captions])
+                tokenized_ids = tokenized_ids.to(device)
+                
+                logits, attn = model(image,  tokenized_ids[:, :-1]) # trg_mask, padding_masks)
+                loss = loss_compute(criterion, logits, tokenized_ids[:, 1:])
 
-                logits, attns = model(image, gen_seq[:, :step])
-                word_ids = torch.argmax(logits, 2)                
-                next_word_id = word_ids[:,-1]
-                # print("gen_seq",gen_seq[:, :step])            
-                # print("word_ids", next_word_id)
-                # print("next_word_id", next_word_id)
+                val_loss += loss.item()
+                pbar_val.set_postfix(loss=loss.item())
+                loss_curve_val.append(loss.item())
+                
 
-                gen_seq[:, step] = next_word_id
-                id_end = step+1
-                if next_word_id==EOS:
-                    break
-        pred_ids = list(gen_seq.squeeze().cpu())
-        reconstruct_caption = tokenizer.decode(pred_ids)
-        # print("pred_ids",pred_ids)
-        # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
+        if True: #best_clip_score <= clip_score:
+            #best_clip_score = clip_score
+            save_as = os.path.join(ckpt_path, f"epoch_{epoch}_best.pth")
+            print(f"Saving emodel at {save_as}")
+            torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_encoder_state_dict': optimizer_encoder.state_dict(),
+                    'optimizer_decoder_state_dict': optimizer_decoder.state_dict(),
+                    'optimizer_predictor_state_dict': optimizer_predictor.state_dict(),
+                    'scheduler_encoder_state_dict': lr_scheduler_encoder.state_dict(),
+                    'scheduler_decoder_state_dict': lr_scheduler_decoder.state_dict(),
+                    'scheduler_predictor_state_dict': lr_scheduler_predictor.state_dict(),
+                    }, save_as)
+        
 
-        result[file_name[0]] = reconstruct_caption
-        # print(file_name)
-        # print(reconstruct_caption)
+    print("OK")
 
-    # save as json
-    json_name = des_path.split('/')[-1]
-    #print(json_name)
-    dest_folder = des_path.replace(json_name,'') 
-    #print(dest_folder)
-    if not os.path.exists(dest_folder):
-        os.makedirs(dest_folder)
+    df = pd.DataFrame() # apply pd.DataFrame format 
+    df["loss_train"] = loss_curve_train
+    csv_name = os.path.join(ckpt_path, f"loss_train.csv")
+    df.to_csv(csv_name, index = False)
 
-    with open(des_path, "w") as f:
-        json.dump(result, f)
-    print(f"Done. json file is saved at {des_path}")
+
+    df = pd.DataFrame() # apply pd.DataFrame format 
+    df["loss_val"] = loss_curve_val
+    csv_name = os.path.join(ckpt_path, f"loss_val.csv")
+    df.to_csv(csv_name, index = False)

@@ -367,29 +367,31 @@ if __name__ == "__main__":
     target_vocab_size = len(tokenizer.get_vocab()) # vocab_size 18022
     seq_length = 64 # Max length of positional embedding
 
-    class RandomRotation:
-        def __init__(self, angles=[0, 90, 180, 270]):
-            self.angles = angles
+    # class RandomRotation:
+    #     def __init__(self, angles=[0, 90, 180, 270]):
+    #         self.angles = angles
 
-        def __call__(self, x):
-            angle = random.choice(self.angles)
-            return TF.rotate(x, angle, expand=True)
+    #     def __call__(self, x):
+    #         angle = random.choice(self.angles)
+    #         return TF.rotate(x, angle, expand=True)
 
     # Dataset
     train_transform = transforms.Compose([
         # transforms.Lambda(under_max),
-        RandomRotation(),
+        # RandomRotation(),
         transforms.Resize((resize,resize)),
         transforms.ColorJitter(brightness=[0.5, 1.3], contrast=[0.8, 1.5], saturation=[0.2, 1.5]),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
+        # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
     val_transform = transforms.Compose([
         transforms.Resize((resize,resize)),
         transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
     data_dir = os.path.join(root_dir,"p2_data") # "./hw3_data/p2_data"
     # TODO: set the following into Dataset.
@@ -443,6 +445,7 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='mean')
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
     # scheduler
     # lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, len(data_loader_train)*epochs)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=gamma)
@@ -451,7 +454,7 @@ if __name__ == "__main__":
     loss_curve_train = []
     loss_curve_val = []
     # Load 
-    # resume  = os.path.join(ckpt_path, f"epoch_4_best.pth")
+    # resume  = os.path.join(ckpt_path, f"epoch_6_best.pth")
     # checkpoint = torch.load(resume, map_location = device)
     # print(f"Load from {resume}")
 

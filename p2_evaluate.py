@@ -62,8 +62,8 @@ class CIDERScore:
 
 
 class CLIPScore:
-    def __init__(self):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+    def __init__(self, device):
+        self.device = device
         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
         self.model.eval()
 
@@ -108,6 +108,7 @@ def main(args):
     # Read data
     predictions = readJSON(args.pred_file)
     annotations = readJSON(args.annotation_file)
+    device = "cuda:1"
 
     # Preprocess annotation file
     gts = getGTCaptions(annotations)
@@ -121,7 +122,7 @@ def main(args):
     cider_score = CIDERScore()(predictions, gts)
 
     # CLIPScore
-    clip_score = CLIPScore()(predictions, args.images_root)
+    clip_score = CLIPScore(device)(predictions, args.images_root)
     
     print(f"CIDEr: {cider_score} | CLIPScore: {clip_score}")
 
