@@ -93,7 +93,7 @@ if __name__ == '__main__':
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("src_path", help="src_path")
     parser.add_argument("json_name", help="json_name")
-    parser.add_argument("output_name", help="output_name")
+    parser.add_argument("output_file", help="output_file")
     parser.add_argument("--template_prompt", help="template_prompt", default = "This is a {item} image.{object}") # "This is a {object} image.couch": 0.69
     args = parser.parse_args()
     src_path = args.src_path # src_path = "hw3_data/p1_data/val"
@@ -111,7 +111,7 @@ if __name__ == '__main__':
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    device = torch.device("cuda")
+    # device = torch.device("cuda")
     print("Using ", device)
  
     model, preprocess = clip.load("ViT-B/32", device=device)
@@ -127,7 +127,7 @@ if __name__ == '__main__':
         prompt = template_prompt.replace("{object}", v)
         # prompt = template_prompt + v
         prompt_list.append(prompt) 
-    print(prompt_list)
+    # print(prompt_list)
     #text = clip.tokenize(["a diagram", "a dog", "a cat"]).to(device)
     text = clip.tokenize(prompt_list).to(device)
 
