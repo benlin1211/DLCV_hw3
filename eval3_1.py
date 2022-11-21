@@ -94,7 +94,7 @@ if __name__ == '__main__':
     parser.add_argument("src_path", help="src_path")
     parser.add_argument("json_name", help="json_name")
     parser.add_argument("output_name", help="output_name")
-    parser.add_argument("--template_prompt", help="template_prompt", default = "This is a {item} image.{object}") # "This is a {object} image.couch": 0.69
+    parser.add_argument("--template_prompt", help="template_prompt", default = "This is a {item} image.{object}") # "This is a {item} image.couch": 0.693
     args = parser.parse_args()
     src_path = args.src_path # src_path = "hw3_data/p1_data/val"
     json_name = args.json_name # json_name = './hw3_data/p1_data/id2label.json'
@@ -127,7 +127,7 @@ if __name__ == '__main__':
         prompt = template_prompt.replace("{object}", v)
         # prompt = template_prompt + v
         prompt_list.append(prompt) 
-    print(prompt_list)
+    # print(prompt_list)
     #text = clip.tokenize(["a diagram", "a dog", "a cat"]).to(device)
     text = clip.tokenize(prompt_list).to(device)
 
