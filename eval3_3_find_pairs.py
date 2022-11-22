@@ -484,15 +484,15 @@ if __name__ == "__main__":
     print(min_cider_file_name)
     print(min_cider, min_cider_caption)
     print("==================== Save ====================")
-    def save_caption_img(image, caption, des_root, file_name):
+    def save_caption_img(image, caption, des_root, cider, file_name):
         fig = plt.figure(figsize=(16, 8))
         plt.imshow(image)
         plt.axis('off')
-        save_path = os.path.join(des_root, f"{caption}_{file_name}")
+        save_path = os.path.join(des_root, f"{caption}_{cider}_{file_name}")
         plt.savefig(save_path, bbox_inches='tight')
     
-    save_caption_img(max_cider_image, max_cider_caption, des_root, max_cider_file_name)
-    save_caption_img(min_cider_image, min_cider_caption, des_root, min_cider_caption)
+    save_caption_img(max_cider_image, max_cider_caption, des_root, max_cider, max_cider_file_name)
+    save_caption_img(min_cider_image, min_cider_caption, des_root, min_cider, min_cider_caption)
 
 
     
