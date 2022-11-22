@@ -294,7 +294,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder")
     parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_6_best.pth")
 
-    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
+    parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_patch16_224"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads", type=int, default=16)
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=1024)

@@ -326,7 +326,8 @@ if __name__ == "__main__":
             device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    # device = torch.device("cuda")
+    print("Beam")
+    device = torch.device("cuda")
 
     print("Using", device)
     des_path = args.des_path

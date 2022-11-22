@@ -310,7 +310,7 @@ if __name__ == "__main__":
     # ================================= TRAIN =====================================                             
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_report") 
     # patch 越小越強
-    parser.add_argument("--model_option",  default= "vit_base_patch16_224") #"vit_base_resnet50_384"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
+    parser.add_argument("--model_option",  default= "vit_base_patch16_224") #"vit_base_patch16_224"  "vit_large_patch14_224_clip_laion2b" "vit_base_patch8_224"
     parser.add_argument("--resize", help="resize", type=int, default=224)
     parser.add_argument("--n_heads", help="n_heads", type=int, default=16) #8
     parser.add_argument("--embed_dim", help="embed_dim", type=int, default=768) # 16*96

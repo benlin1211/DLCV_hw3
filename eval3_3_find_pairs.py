@@ -409,7 +409,7 @@ if __name__ == "__main__":
 
     model.eval()
 
-    max_len = 52
+    max_len = 31
     result = {}
     BOS=2
     EOS=3
@@ -474,8 +474,8 @@ if __name__ == "__main__":
             min_cider_caption = reconstruct_caption
             min_cider_file_name = file_name
 
-        if i > 10:
-            break
+        # if i > 10:
+        #     break
     
     # save image
     print("====================Result====================")
@@ -488,7 +488,7 @@ if __name__ == "__main__":
         fig = plt.figure(figsize=(16, 8))
         plt.imshow(image)
         plt.axis('off')
-        save_path = os.path.join(des_root, f"{caption}_{cider}_{file_name}")
+        save_path = os.path.join(des_root, f"_{file_name}")
         plt.savefig(save_path, bbox_inches='tight')
     
     save_caption_img(max_cider_image, max_cider_caption, des_root, max_cider, max_cider_file_name)

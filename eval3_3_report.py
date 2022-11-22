@@ -368,12 +368,12 @@ if __name__ == "__main__":
 
     model.eval()
 
-    max_len = 52
+    max_len = 31 #52
     result = {}
     BOS=2
     EOS=3
 
-    for data in tqdm(data_loader_val):
+    for idx, data in tqdm(enumerate(data_loader_val)):
         
         # preprocessing 
         image, file_name = data 
@@ -409,8 +409,8 @@ if __name__ == "__main__":
         # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
 
         result[file_name[0]] = reconstruct_caption
-        # print(file_name)
-        # print(reconstruct_caption)
+        print(file_name)
+        print(reconstruct_caption)
         # print(len(attn_list))
         # print(len(pred_ids))
         # print(attn_list[0].shape)
@@ -418,7 +418,7 @@ if __name__ == "__main__":
         ori_img = image[0].permute(1,2,0).clone().cpu()
         fig = plt.figure(figsize=(16, 8))
         fig.suptitle(f"Attention Visualization of {file_name[0]}.jpg", fontsize=24)
-
+        print(len(pred_ids))
         for i in range(0, len(pred_ids), 1):
             token = pred_ids[i]
             if token == 2:
@@ -431,14 +431,22 @@ if __name__ == "__main__":
             
             if i==0:
                 # show origin
-                ax = fig.add_subplot(3, 5, i+1)
+                if idx==1:
+                    ax = fig.add_subplot(4, 8, i+1)
+                else:
+                    ax = fig.add_subplot(3, 5, i+1)
+
                 ax.imshow(ori_img)
                 ax.axes.get_xaxis().set_visible(False)
                 ax.axes.get_yaxis().set_visible(False)
                 ax.set_title(caption)
                 pass
             else:
-                ax = fig.add_subplot(3, 5, i+1)
+                # show origin
+                if idx==1:
+                    ax = fig.add_subplot(4, 8, i+1)
+                else:
+                    ax = fig.add_subplot(3, 5, i+1)
                 attn = attn_list[i-1]
                 attn_map = attn_transform(tensor_to_PIL(attn)).permute(1,2,0)
                 # print(caption)
