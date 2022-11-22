@@ -441,7 +441,7 @@ if __name__ == "__main__":
                 ax = fig.add_subplot(3, 5, i+1)
                 attn = attn_list[i-1]
                 attn_map = attn_transform(tensor_to_PIL(attn)).permute(1,2,0)
-                # print(caption, attn_map.shape)
+                # print(caption)
                 ax.imshow(attn_map, cmap='jet')
                 ax.imshow(ori_img, alpha = 0.2)
                 ax.axes.get_xaxis().set_visible(False)

@@ -3,7 +3,7 @@
 
 import timm
 from copy import deepcopy
-
+from collections import defaultdict
 import urllib
 import os
 import glob
@@ -30,7 +30,7 @@ import torchvision
 import torchvision.transforms as transforms
 from tqdm import tqdm
 import argparse
-
+import language_evaluation
 
 
 """
@@ -283,16 +283,44 @@ def loss_compute(criterion, pred, gth):
     # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
     return loss
 
+def readJSON(file_path):
+    try:
+        with open(file_path) as f:
+            data = json.load(f)
+        return data
+    except:
+        return None
+
+def getGTCaptions(annotations, file_name):
+    img_id = None
+    for img_info in annotations["images"]:
+        img_name = img_info["file_name"]
+        # print(img_name)
+        if file_name == img_name:
+            img_id = img_info["id"]
+            break
+
+    img_name_to_gts = []
+    for ann_info in annotations["annotations"]:
+        if img_id == ann_info["image_id"]:
+            img_name_to_gts.append(ann_info["caption"])
+            
+    print(file_name)
+    print(img_id)
+    print(img_name_to_gts)
+    return img_name_to_gts
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="hw 3-2 train",
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
-    parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
+    parser.add_argument("--src_path", help="src_path", default="hw3_data/p2_data/images/val/") 
+    parser.add_argument("--des_root", help="des_root", default="hw3/output_p3-2_data/") 
+    parser.add_argument("--annotation_file", default="hw3_data/p2_data/val.json", help="Annotation json file")
     parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
-    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder")
-    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_6_best.pth")
+    parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue")
+    parser.add_argument("--resume_name", help="Checkpoint resume name", default= "epoch_3_best.pth")
 
     parser.add_argument("--model_option",  default= "vit_large_patch14_224_clip_laion2b") #"vit_base_resnet50_384"  "vit_base_patch14_224_clip_laion2b"
     parser.add_argument("--resize", help="resize", type=int, default=224)
@@ -317,8 +345,10 @@ if __name__ == "__main__":
     # device = torch.device("cuda")
 
     print("Using", device)
-    des_path = args.des_path
+    des_root = args.des_root
+    os.makedirs(des_root, exist_ok=True)
     src_path = args.src_path
+
     
     tokenizer_path = args.tokenizer_path
     ckpt_path = args.ckpt_path
@@ -383,14 +413,19 @@ if __name__ == "__main__":
     result = {}
     BOS=2
     EOS=3
-    max_cider=0
-    min_cider=1
+    max_cider= 0  # initially min value
+    min_cider= 10 # initially max value
     max_cider_image=None
     max_cider_caption=None
     min_cider_image=None
     min_cider_caption=None
-    
-    for i, data in tqdm(enumerate(data_loader_val)):
+
+    # Prepare for cider
+    evaluator = language_evaluation.CocoEvaluator(coco_types=["CIDEr"])
+    annotations = readJSON(args.annotation_file)
+
+    # gts = getGTCaptions(annotations)
+    for i, data in enumerate(data_loader_val):
         
         # preprocessing 
         image, file_name = data 
@@ -420,28 +455,46 @@ if __name__ == "__main__":
         # reconstruct_caption = tokenizer.decode(pred_ids[:id_end])
 
         result[file_name] = reconstruct_caption
-        # print(file_name)
-        # print(reconstruct_caption)
-
         # compute cider
-        CIDEr_Score = aaa
+        gts = getGTCaptions(annotations, file_name)
+        predictions = [reconstruct_caption, reconstruct_caption, reconstruct_caption, reconstruct_caption, reconstruct_caption]
+        results = evaluator.run_evaluation(predictions, gts)
+        CIDEr_Score = results['CIDEr']
+        print(file_name)
+        print(CIDEr_Score, reconstruct_caption)
+
         if max_cider < CIDEr_Score:
             max_cider = CIDEr_Score
-            max_cider_image = image[0]
+            max_cider_image = image[0].permute(1,2,0).cpu()
             max_cider_caption = reconstruct_caption
+            max_cider_file_name = file_name
         if min_cider > CIDEr_Score:
             min_cider = CIDEr_Score
-            min_cider_image = image[0]
+            min_cider_image = image[0].permute(1,2,0).cpu()
             min_cider_caption = reconstruct_caption
+            min_cider_file_name = file_name
 
         if i > 10:
             break
     
     # save image
-    print(max_cider_image.shape)
-    print(max_cider_caption)
-    print(min_cider_image.shape)
-    print(min_cider_caption)
+    print("====================Result====================")
+    print(max_cider_file_name)
+    print(max_cider, max_cider_caption)
+    print(min_cider_file_name)
+    print(min_cider, min_cider_caption)
+    print("==================== Save ====================")
+    def save_caption_img(image, caption, des_root, file_name):
+        fig = plt.figure(figsize=(16, 8))
+        plt.imshow(image)
+        plt.axis('off')
+        save_path = os.path.join(des_root, f"{caption}_{file_name}")
+        plt.savefig(save_path, bbox_inches='tight')
+    
+    save_caption_img(max_cider_image, max_cider_caption, des_root, max_cider_file_name)
+    save_caption_img(min_cider_image, min_cider_caption, des_root, min_cider_caption)
+
+
     
 
     
