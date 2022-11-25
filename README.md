@@ -28,17 +28,6 @@ You can run the following command to install all the packages listed in the requ
 
     conda list
 
-### Install module
-    pip install --upgrade --target=/home/zhongwei/.conda/envs/dlcv-hw3/ git+https://github.com/openai/CLIP.git
-    pip install --upgrade --target=/home/zhongwei/.conda/envs/dlcv-hw3/ git+https://github.com/bckim92/language-evaluation.git
-    pip install --upgrade --target=/home/zhongwei/.conda/envs/dlcv-hw3/ -r requirements.txt
-    
-    pip3 install --target=/home/zhongwei/.conda/envs/dlcv-hw3/ --upgrade git+https://github.com/openai/CLIP.git
-    pip3 install --no-cache --upgrade  git+https://github.com/openai/CLIP.git
-    
-    pip3 install --target=/home/zhongwei/.conda/envs/dlcv-hw3/ --upgrade git+https://github.com/openai/CLIP.git
-    pip3 install --target=/home/zhongwei/.conda/envs/dlcv-hw3/ --upgrade -r requirements.txt
-
 ### List all environments
 
     conda info --envs
@@ -88,3 +77,14 @@ ViT-B-32.pt: SHA256 checksum does not match
 ~/.cache/clip/ViT-B-32.pt cache內的clip，如果噴了SHA256 checksum does not not match，代表它可能corrupted，要把它刪掉
 ~/.local/lib/python3.9/site-packages 這裡是你的clip module 安裝位址
 
+
+### Install module
+    pip install --upgrade --target=/home/zhongwei/.conda/envs/dlcv-hw3/ git+https://github.com/openai/CLIP.git
+    pip install --upgrade --target=/home/zhongwei/.conda/envs/dlcv-hw3/ git+https://github.com/bckim92/language-evaluation.git
+    pip install --upgrade --target=/home/zhongwei/.conda/envs/dlcv-hw3/ -r requirements.txt
+    
+    pip3 install --target=/home/zhongwei/.conda/envs/dlcv-hw3/ --upgrade git+https://github.com/openai/CLIP.git
+    pip3 install --no-cache --upgrade  git+https://github.com/openai/CLIP.git
+    
+    pip3 install --target=/home/zhongwei/.conda/envs/dlcv-hw3/ --upgrade git+https://github.com/openai/CLIP.git
+    pip3 install --target=/home/zhongwei/.conda/envs/dlcv-hw3/ --upgrade -r requirements.txt
