@@ -297,7 +297,7 @@ if __name__ == "__main__":
                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("src_path", help="src_path. ex: hw3_data/p2_data/images/val") 
     parser.add_argument("des_path", help="des_path. ex: hw3/output_p2/pred.json") 
-    parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./hw3_data/caption_tokenizer.json")
+    parser.add_argument("--tokenizer_path", help="tokenizer location", default= "./tokenizer_file/caption_tokenizer.json")
     parser.add_argument("--dropout", help="dropout in encoder", type=int, default= 0.1)
     # ================================ EVAL ======================================    
     parser.add_argument("--ckpt_path", help="Checkpoint location", default= "./ckpt_encoder_continue")  

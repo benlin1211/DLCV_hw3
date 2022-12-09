@@ -151,7 +151,8 @@ if __name__ == '__main__':
     pred_list = []
     filename_list = []
     for i in tqdm(range(len_dataloader)):
-        data = data_iter.next()
+        data = next(data_iter)
+        print("Y")
         image, file_name = data
         # print(file_name)
 
