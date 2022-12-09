@@ -146,13 +146,11 @@ if __name__ == '__main__':
         num_workers=8
     )
     len_dataloader = len(dataloader)
-    data_iter = iter(dataloader)
     
     pred_list = []
     filename_list = []
-    for i in tqdm(range(len_dataloader)):
-        data = next(data_iter)
-        print("Y")
+
+    for data in tqdm(dataloader):
         image, file_name = data
         # print(file_name)
 
